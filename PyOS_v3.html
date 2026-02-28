@@ -1,0 +1,2063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PyOS 3.14 — The Snake Operating System</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,700;1,400&family=Orbitron:wght@400;700;900&display=swap');
+
+/* ── CSS VARIABLES (settings-controlled) ── */
+:root {
+  --bg:#0a0e1a; --panel:#111827; --panel2:#0f172a;
+  --border:#1e3a5f; --border2:#2d4a6f;
+  --accent:#3b82f6; --accent2:#06b6d4; --accent3:#8b5cf6;
+  --green:#10b981; --yellow:#f59e0b; --red:#ef4444;
+  --text:#e2e8f0; --muted:#64748b; --muted2:#475569;
+  --taskbar:#060d1a; --wintitle:#1e293b;
+  --sy:#fde68a; --sb:#3b82f6;
+  --glow:0 0 20px rgba(59,130,246,0.35);
+  --font-size: 1;
+  --wallpaper: none;
+  --taskbar-pos: bottom;
+  --ui-scale: 1;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;}
+body{
+  font-family:'JetBrains Mono',monospace;
+  background:var(--bg);color:var(--text);
+  height:100vh;overflow:hidden;position:relative;user-select:none;
+}
+
+/* ── BOOT ── */
+#boot{position:fixed;inset:0;background:#000;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+#boot .logo{font-family:'Orbitron',sans-serif;font-size:3rem;font-weight:900;color:var(--sy);text-shadow:0 0 40px rgba(253,230,138,.6);margin-bottom:.5rem;animation:pulse 1.2s ease infinite;}
+#boot .sub{color:var(--muted);font-size:.8rem;margin-bottom:3rem;}
+#boot-log{color:var(--green);font-size:.68rem;width:520px;max-width:90vw;height:200px;overflow:hidden;}
+#boot-log .line{opacity:0;animation:fadeIn .15s forwards;white-space:pre;}
+#boot-progress-wrap{width:520px;max-width:90vw;margin-top:1.5rem;background:#111;height:4px;border-radius:2px;}
+#boot-progress{height:100%;width:0%;background:linear-gradient(90deg,var(--sb),var(--sy));border-radius:2px;transition:width .12s;}
+
+@keyframes fadeIn{to{opacity:1;}}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.65;}}
+@keyframes spin{to{transform:rotate(360deg);}}
+@keyframes slideUp{from{transform:translateY(20px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+@keyframes slideIn{from{transform:translateX(110%);opacity:0;}to{transform:translateX(0);opacity:1;}}
+@keyframes fadeOut{from{opacity:1;}to{opacity:0;transform:translateY(-8px);}}
+@keyframes shake{0%,100%{transform:translateX(0);}20%,60%{transform:translateX(-8px);}40%,80%{transform:translateX(8px);}}
+
+/* ── LOCK SCREEN ── */
+#lockscreen{
+  position:fixed;inset:0;z-index:8000;
+  background:linear-gradient(135deg,#0a0e1a 0%,#0f1929 50%,#0a0e1a 100%);
+  display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+}
+#lockscreen::before{content:'';position:absolute;inset:0;background:var(--wallpaper);background-size:cover;background-position:center;opacity:.3;pointer-events:none;}
+.lock-time{font-family:'Orbitron',sans-serif;font-size:4rem;font-weight:900;color:var(--sy);text-shadow:0 0 30px rgba(253,230,138,.4);}
+.lock-date{color:var(--muted);font-size:.9rem;}
+.lock-user{display:flex;flex-direction:column;align-items:center;gap:8px;margin-top:10px;}
+.lock-avatar{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent3));display:flex;align-items:center;justify-content:center;font-size:2rem;border:2px solid var(--border2);}
+.lock-username{font-size:.9rem;color:var(--text);font-weight:700;}
+.lock-pin-row{display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:8px;}
+.lock-dots{display:flex;gap:12px;}
+.lock-dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--border2);transition:all .15s;}
+.lock-dot.filled{background:var(--accent);border-color:var(--accent);}
+.lock-dot.error{background:var(--red);border-color:var(--red);animation:shake .4s ease;}
+.lock-numpad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;}
+.ln-btn{width:56px;height:56px;border-radius:50%;background:rgba(59,130,246,.08);border:1px solid var(--border);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:1rem;cursor:pointer;transition:all .15s;}
+.ln-btn:hover{background:rgba(59,130,246,.25);border-color:var(--accent);}
+.ln-btn:active{transform:scale(.9);}
+.lock-hint{color:var(--muted2);font-size:.6rem;margin-top:4px;}
+
+/* ── DESKTOP ── */
+#desktop{width:100vw;height:calc(100vh - 40px);position:relative;background:var(--bg);overflow:hidden;}
+#desktop::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(59,130,246,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(59,130,246,.025) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;opacity:var(--grid-opacity,1);}
+#desktop-wallpaper{position:absolute;inset:0;background-size:cover;background-position:center;pointer-events:none;transition:all .4s;}
+.blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.06;pointer-events:none;}
+
+/* ── TASKBAR ── */
+#taskbar{position:fixed;bottom:0;left:0;right:0;height:40px;background:var(--taskbar);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 10px;gap:6px;z-index:1000;backdrop-filter:blur(10px);}
+#tb-windows{display:flex;gap:4px;flex:1;overflow:hidden;}
+.tb-btn{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--text);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0;}
+.tb-btn:hover{background:var(--border);border-color:var(--accent);color:var(--accent);}
+.tb-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(59,130,246,.12);}
+.tb-btn.start{background:var(--sy);color:#000;font-weight:700;border-color:var(--sy);}
+.tb-btn.start:hover{background:#fbbf24;}
+.tb-sep{width:1px;height:20px;background:var(--border);flex-shrink:0;}
+#clock{font-size:.68rem;color:var(--muted);min-width:90px;text-align:right;cursor:pointer;}
+#clock:hover{color:var(--text);}
+#sys-tray{display:flex;align-items:center;gap:8px;color:var(--green);font-size:.63rem;flex-shrink:0;}
+.tray-icon{cursor:pointer;padding:2px 4px;border-radius:3px;transition:background .1s;}
+.tray-icon:hover{background:rgba(255,255,255,.08);}
+
+/* ── DESKTOP ICONS ── */
+.desk-icon{position:absolute;width:76px;text-align:center;cursor:pointer;padding:8px 4px;border-radius:8px;transition:background .15s;}
+.desk-icon:hover{background:rgba(59,130,246,.18);}
+.desk-icon.selected{background:rgba(59,130,246,.3);outline:1px solid rgba(59,130,246,.5);}
+.desk-icon .icon-img{font-size:2rem;display:block;margin-bottom:4px;}
+.desk-icon .icon-label{font-size:.58rem;color:var(--text);word-break:break-word;text-shadow:0 1px 6px #000,0 0 2px #000;}
+
+/* ── WINDOWS ── */
+.window{position:absolute;background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.55),var(--glow);min-width:280px;min-height:180px;display:flex;flex-direction:column;overflow:hidden;z-index:100;transition:box-shadow .15s;}
+.window.focused{border-color:var(--accent);box-shadow:0 12px 60px rgba(0,0,0,.8),0 0 28px rgba(59,130,246,.28);z-index:200;}
+.window.minimized{opacity:0;pointer-events:none;transform:scale(.95);transition:opacity .15s,transform .15s;}
+.window.snapped-left{left:0!important;top:0!important;width:50vw!important;height:calc(100vh - 40px)!important;}
+.window.snapped-right{left:50vw!important;top:0!important;width:50vw!important;height:calc(100vh - 40px)!important;}
+.window-title{background:var(--wintitle);border-bottom:1px solid var(--border);padding:7px 10px;display:flex;align-items:center;gap:8px;cursor:move;flex-shrink:0;font-size:.73rem;font-weight:700;color:var(--text);}
+.win-icon{font-size:1rem;}
+.win-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.win-controls{display:flex;gap:5px;}
+.win-btn{width:12px;height:12px;border-radius:50%;border:none;cursor:pointer;font-size:0;transition:opacity .15s;flex-shrink:0;}
+.win-btn:hover{opacity:.75;}
+.win-close{background:var(--red);}
+.win-min{background:var(--yellow);}
+.win-max{background:var(--green);}
+.window-body{flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative;}
+.resize-handle{position:absolute;bottom:0;right:0;width:16px;height:16px;cursor:se-resize;z-index:10;}
+.resize-handle::after{content:'';position:absolute;bottom:3px;right:3px;width:0;height:0;border-style:solid;border-width:0 0 7px 7px;border-color:transparent transparent var(--border2) transparent;}
+
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:var(--border2);}
+
+/* ── TERMINAL ── */
+.term-out{background:#000e1a;flex:1;overflow-y:auto;padding:10px 12px;font-size:.73rem;line-height:1.65;}
+.t-line{color:var(--green);white-space:pre-wrap;word-break:break-all;}
+.t-line.err{color:var(--red);}
+.t-line.sys{color:var(--accent2);}
+.t-line.out{color:var(--text);}
+.t-line.warn{color:var(--yellow);}
+.term-input-row{display:flex;align-items:center;gap:6px;padding:6px 12px;border-top:1px solid var(--border);background:#000e1a;flex-shrink:0;}
+.term-prompt-label{color:var(--accent2);font-size:.72rem;white-space:nowrap;flex-shrink:0;}
+.term-inp{background:transparent;border:none;outline:none;color:var(--green);font-family:'JetBrains Mono',monospace;font-size:.72rem;flex:1;caret-color:var(--green);}
+
+/* ── FILE MANAGER ── */
+.fm-wrap{display:flex;flex-direction:column;flex:1;overflow:hidden;}
+.fm-toolbar{display:flex;gap:6px;padding:8px;border-bottom:1px solid var(--border);background:var(--panel2);flex-shrink:0;align-items:center;}
+.fm-path-bar{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--muted);outline:none;}
+.fm-path-bar:focus{border-color:var(--accent);color:var(--text);}
+.fm-btn{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 10px;font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--text);cursor:pointer;white-space:nowrap;}
+.fm-btn:hover{border-color:var(--accent);color:var(--accent);}
+.fm-body{flex:1;overflow-y:auto;padding:10px;}
+.fm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:8px;}
+.fm-list-row{display:flex;align-items:center;gap:10px;padding:6px 8px;border-bottom:1px solid rgba(30,58,95,.2);cursor:pointer;font-size:.68rem;border-radius:4px;}
+.fm-list-row:hover{background:rgba(59,130,246,.07);}
+.fm-list-row.selected{background:rgba(59,130,246,.15);}
+.fm-item{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 4px;text-align:center;cursor:pointer;transition:all .15s;}
+.fm-item:hover{border-color:var(--accent);background:rgba(59,130,246,.1);}
+.fm-item.selected{border-color:var(--accent);background:rgba(59,130,246,.2);}
+.fi-icon{font-size:1.6rem;}
+.fi-name{font-size:.55rem;margin-top:4px;color:var(--text);word-break:break-all;line-height:1.3;}
+.fm-statusbar{padding:4px 10px;border-top:1px solid var(--border);font-size:.6rem;color:var(--muted);background:var(--panel2);flex-shrink:0;}
+
+/* ── EDITOR ── */
+.editor-wrap{display:flex;flex-direction:column;flex:1;overflow:hidden;}
+.editor-toolbar{display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--border);background:var(--panel2);flex-shrink:0;align-items:center;flex-wrap:wrap;}
+.editor-tabs{display:flex;gap:2px;flex:1;overflow:hidden;}
+.editor-tab{padding:3px 10px;border-radius:4px 4px 0 0;font-size:.65rem;cursor:pointer;color:var(--muted);border:1px solid transparent;border-bottom:none;white-space:nowrap;display:flex;align-items:center;gap:4px;}
+.editor-tab.active{background:var(--bg);border-color:var(--border);color:var(--text);}
+.editor-tab .tab-close{opacity:.5;font-size:.7rem;line-height:1;}
+.editor-tab .tab-close:hover{opacity:1;color:var(--red);}
+.ed-btn{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:.63rem;color:var(--text);cursor:pointer;white-space:nowrap;}
+.ed-btn:hover{border-color:var(--accent);color:var(--accent);}
+.editor-area-wrap{display:flex;flex:1;overflow:hidden;}
+.line-nums{background:#000a14;padding:10px 8px;font-size:.72rem;line-height:1.65;color:var(--muted);text-align:right;border-right:1px solid var(--border);user-select:none;min-width:38px;overflow:hidden;flex-shrink:0;}
+.editor-ta{flex:1;background:#000e1a;border:none;outline:none;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:.72rem;padding:10px 12px;resize:none;line-height:1.65;tab-size:4;}
+.editor-statusbar{padding:3px 10px;border-top:1px solid var(--border);font-size:.6rem;color:var(--muted);background:var(--panel2);display:flex;gap:16px;flex-shrink:0;}
+
+/* ── TASK MANAGER ── */
+.tm-wrap{display:flex;flex-direction:column;flex:1;overflow:hidden;}
+.tm-tabs{display:flex;gap:4px;padding:8px;border-bottom:1px solid var(--border);background:var(--panel2);flex-shrink:0;}
+.tm-tab{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 12px;font-size:.65rem;cursor:pointer;color:var(--muted);transition:all .15s;}
+.tm-tab.active{border-color:var(--accent);color:var(--accent);}
+.tm-body{flex:1;overflow-y:auto;padding:10px;}
+.tm-table{width:100%;border-collapse:collapse;font-size:.65rem;}
+.tm-table th{color:var(--muted);text-align:left;padding:5px 8px;border-bottom:1px solid var(--border);font-weight:400;cursor:pointer;}
+.tm-table th:hover{color:var(--text);}
+.tm-table td{padding:5px 8px;border-bottom:1px solid rgba(30,58,95,.25);}
+.tm-table tr:hover td{background:rgba(59,130,246,.05);}
+.tm-bar-wrap{height:4px;background:var(--border);border-radius:2px;width:70px;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:4px;}
+.tm-bar-fill{height:100%;border-radius:2px;transition:width .8s;}
+.perf-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.perf-card{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;}
+.perf-label{font-size:.6rem;color:var(--muted);margin-bottom:4px;}
+.perf-val{font-size:1.3rem;color:var(--accent);font-family:'Orbitron',sans-serif;margin-bottom:6px;}
+.perf-mini-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
+.perf-mini-fill{height:100%;border-radius:3px;transition:width 1s;}
+.perf-history{height:40px;display:flex;align-items:flex-end;gap:1px;margin-top:6px;}
+
+/* ── CALCULATOR ── */
+.calc-wrap{display:flex;flex-direction:column;padding:12px;gap:8px;flex:1;}
+.calc-mode-tabs{display:flex;gap:4px;}
+.calc-mode-tab{flex:1;padding:4px;font-size:.6rem;background:var(--bg);border:1px solid var(--border);border-radius:4px;cursor:pointer;color:var(--muted);text-align:center;transition:all .15s;}
+.calc-mode-tab.active{border-color:var(--accent);color:var(--accent);}
+.calc-display{background:#000e1a;border:1px solid var(--border);border-radius:6px;padding:12px 14px;}
+.calc-hist{font-size:.6rem;color:var(--muted);min-height:14px;text-align:right;}
+.calc-expr{font-size:.75rem;color:var(--muted2);min-height:18px;text-align:right;word-break:break-all;}
+.calc-val{font-size:1.9rem;color:var(--text);font-family:'Orbitron',sans-serif;text-align:right;word-break:break-all;}
+.calc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;}
+.c-btn{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:9px 4px;font-family:'JetBrains Mono',monospace;font-size:.78rem;color:var(--text);cursor:pointer;transition:all .1s;text-align:center;}
+.c-btn:hover{background:var(--border);}
+.c-btn:active{transform:scale(.94);}
+.c-btn.op{color:var(--accent2);border-color:rgba(6,182,212,.25);}
+.c-btn.eq{background:var(--accent);color:#fff;border-color:var(--accent);}
+.c-btn.eq:hover{background:#2563eb;}
+.c-btn.clr{color:var(--red);border-color:rgba(239,68,68,.25);}
+.c-btn.span2{grid-column:span 2;}
+
+/* ── SNAKE ── */
+.snake-wrap{display:flex;flex-direction:column;align-items:center;padding:10px;gap:8px;flex:1;}
+.snake-info{display:flex;gap:20px;font-size:.7rem;color:var(--muted);}
+.snake-info span b{color:var(--text);}
+
+/* ── PAINT ── */
+.paint-wrap{display:flex;flex-direction:column;flex:1;overflow:hidden;}
+.paint-toolbar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--panel2);flex-shrink:0;flex-wrap:wrap;}
+.paint-tool-btn{width:28px;height:28px;background:var(--bg);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:.9rem;display:flex;align-items:center;justify-content:center;transition:all .1s;}
+.paint-tool-btn:hover{border-color:var(--accent);}
+.paint-tool-btn.active{border-color:var(--accent);background:rgba(59,130,246,.2);}
+.paint-colors{display:flex;gap:3px;flex-wrap:wrap;max-width:140px;}
+.paint-color{width:16px;height:16px;border-radius:3px;cursor:pointer;border:2px solid transparent;transition:transform .1s;}
+.paint-color:hover{transform:scale(1.2);}
+.paint-color.active{border-color:#fff;transform:scale(1.2);}
+.paint-canvas-wrap{flex:1;overflow:auto;background:#1a1a2e;display:flex;align-items:flex-start;justify-content:flex-start;padding:8px;}
+
+/* ── BROWSER ── */
+.browser-wrap{display:flex;flex-direction:column;flex:1;overflow:hidden;}
+.browser-bar{display:flex;align-items:center;gap:5px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--panel2);flex-shrink:0;}
+.browser-nav-btn{width:26px;height:26px;background:var(--bg);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:.9rem;display:flex;align-items:center;justify-content:center;color:var(--text);flex-shrink:0;}
+.browser-nav-btn:hover{border-color:var(--accent);}
+.browser-nav-btn:disabled{opacity:.3;cursor:default;}
+.browser-url{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--text);outline:none;transition:border-color .15s;}
+.browser-url:focus{border-color:var(--accent);}
+.browser-tabs{display:flex;gap:2px;padding:4px 10px 0;background:var(--panel2);border-bottom:1px solid var(--border);overflow-x:auto;flex-shrink:0;}
+.browser-tab{display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-bottom:none;border-radius:4px 4px 0 0;font-size:.62rem;cursor:pointer;white-space:nowrap;min-width:80px;max-width:160px;}
+.browser-tab.active{background:var(--panel);border-color:var(--accent);color:var(--accent);}
+.browser-tab .btab-close{margin-left:auto;opacity:.5;font-size:.65rem;}
+.browser-tab .btab-close:hover{opacity:1;color:var(--red);}
+.browser-iframe-wrap{flex:1;position:relative;overflow:hidden;background:#fff;}
+.browser-iframe-wrap iframe{width:100%;height:100%;border:none;}
+.browser-loading{position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));transform-origin:left;animation:loadBar 1s ease-in-out;display:none;}
+@keyframes loadBar{from{transform:scaleX(0);}to{transform:scaleX(1);}}
+.browser-home{flex:1;overflow-y:auto;background:var(--bg);padding:20px;display:flex;flex-direction:column;gap:16px;}
+.home-search{display:flex;gap:8px;}
+.home-search input{flex:1;background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:8px 16px;font-family:'JetBrains Mono',monospace;font-size:.75rem;color:var(--text);outline:none;}
+.home-search input:focus{border-color:var(--accent);}
+.home-search button{background:var(--accent);border:none;border-radius:20px;padding:8px 16px;color:#fff;font-family:'JetBrains Mono',monospace;font-size:.75rem;cursor:pointer;}
+.home-bookmarks{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:10px;}
+.bookmark-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 8px;text-align:center;cursor:pointer;transition:all .15s;font-size:.62rem;}
+.bookmark-card:hover{border-color:var(--accent);background:rgba(59,130,246,.1);}
+.bookmark-card .bm-icon{font-size:1.6rem;margin-bottom:4px;}
+
+/* ── MAIL ── */
+.mail-wrap{display:flex;flex:1;overflow:hidden;}
+.mail-sidebar{width:160px;border-right:1px solid var(--border);background:var(--panel2);padding:8px;display:flex;flex-direction:column;gap:3px;flex-shrink:0;}
+.mail-folder{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:5px;cursor:pointer;font-size:.68rem;color:var(--muted);transition:all .15s;}
+.mail-folder:hover{background:rgba(59,130,246,.1);color:var(--text);}
+.mail-folder.active{background:rgba(59,130,246,.2);color:var(--accent);}
+.mail-badge{margin-left:auto;background:var(--accent);color:#fff;border-radius:8px;padding:1px 5px;font-size:.55rem;}
+.mail-list{width:220px;overflow-y:auto;border-right:1px solid var(--border);flex-shrink:0;}
+.mail-item{padding:10px 12px;border-bottom:1px solid rgba(30,58,95,.3);cursor:pointer;transition:background .1s;}
+.mail-item:hover{background:rgba(59,130,246,.07);}
+.mail-item.active-mail{background:rgba(59,130,246,.15);}
+.mail-item.unread .mi-from{font-weight:700;color:var(--text);}
+.mi-from{font-size:.68rem;color:var(--muted);margin-bottom:2px;}
+.mi-subject{font-size:.67rem;color:var(--text);margin-bottom:2px;}
+.mi-preview{font-size:.57rem;color:var(--muted2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mi-time{font-size:.55rem;color:var(--muted2);float:right;}
+.mail-view{flex:1;padding:16px;overflow-y:auto;font-size:.72rem;line-height:1.6;}
+.mail-compose{position:absolute;bottom:0;left:0;right:0;background:var(--panel);border-top:1px solid var(--border);padding:12px;display:none;flex-direction:column;gap:8px;}
+.mail-compose.open{display:flex;}
+.mail-compose-input{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:5px 8px;font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--text);outline:none;width:100%;}
+.mail-compose-input:focus{border-color:var(--accent);}
+.mail-compose-ta{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:5px 8px;font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--text);outline:none;width:100%;height:80px;resize:none;}
+
+/* ── MUSIC ── */
+.music-wrap{display:flex;flex-direction:column;flex:1;padding:14px;gap:10px;background:linear-gradient(160deg,#0f172a,#0a0e1a);overflow-y:auto;}
+.music-album{width:110px;height:110px;border-radius:12px;background:linear-gradient(135deg,var(--accent3),var(--accent));margin:0 auto;display:flex;align-items:center;justify-content:center;font-size:3rem;box-shadow:0 8px 30px rgba(139,92,246,.4);transition:transform .3s;}
+.music-album.playing{animation:spin 8s linear infinite;}
+.music-title{text-align:center;font-size:.85rem;font-weight:700;}
+.music-artist{text-align:center;font-size:.65rem;color:var(--muted);}
+.music-progress-wrap{background:var(--border);border-radius:3px;height:5px;cursor:pointer;position:relative;margin:4px 0;}
+.music-progress{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s linear;pointer-events:none;}
+.music-times{display:flex;justify-content:space-between;font-size:.58rem;color:var(--muted);}
+.music-controls{display:flex;align-items:center;justify-content:center;gap:10px;}
+.music-btn{background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer;padding:6px;border-radius:50%;transition:all .15s;}
+.music-btn:hover{background:rgba(255,255,255,.1);}
+.music-btn.play-btn{background:var(--accent);width:40px;height:40px;font-size:1rem;border-radius:50%;}
+.music-btn.play-btn:hover{background:#2563eb;}
+.music-vol{display:flex;align-items:center;gap:6px;font-size:.6rem;color:var(--muted);}
+.music-vol input{accent-color:var(--accent);width:70px;}
+.music-playlist{border-top:1px solid var(--border);flex:1;overflow-y:auto;}
+.playlist-item{display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid rgba(30,58,95,.2);cursor:pointer;font-size:.65rem;border-radius:4px;transition:background .1s;}
+.playlist-item:hover{background:rgba(59,130,246,.08);}
+.playlist-item.playing-now{color:var(--accent);}
+.music-visualizer{display:flex;align-items:flex-end;gap:2px;height:28px;justify-content:center;}
+.vis-bar{width:4px;background:var(--accent);border-radius:2px 2px 0 0;transition:height .12s;}
+
+/* ── SETTINGS ── */
+.settings-wrap{display:flex;flex-direction:column;flex:1;overflow:hidden;}
+.settings-nav{display:flex;gap:3px;padding:8px;border-bottom:1px solid var(--border);background:var(--panel2);flex-shrink:0;flex-wrap:wrap;}
+.settings-tab{padding:4px 10px;font-size:.65rem;cursor:pointer;color:var(--muted);border:1px solid transparent;border-radius:4px;transition:all .15s;}
+.settings-tab.active{border-color:var(--accent);color:var(--accent);background:rgba(59,130,246,.1);}
+.settings-tab:hover:not(.active){color:var(--text);}
+.settings-body{flex:1;overflow-y:auto;padding:14px;}
+.sg-title{font-size:.62rem;color:var(--accent2);text-transform:uppercase;letter-spacing:2px;margin-bottom:10px;margin-top:16px;}
+.sg-title:first-child{margin-top:0;}
+.settings-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(30,58,95,.4);font-size:.7rem;gap:10px;}
+.settings-row label{color:var(--muted);flex-shrink:0;}
+.settings-row span{color:var(--text);}
+.toggle{width:36px;height:18px;background:var(--border);border-radius:9px;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;}
+.toggle.on{background:var(--green);}
+.toggle::after{content:'';position:absolute;left:2px;top:2px;width:14px;height:14px;background:#fff;border-radius:7px;transition:left .2s;}
+.toggle.on::after{left:20px;}
+.settings-select{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 8px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:.65rem;cursor:pointer;outline:none;}
+.settings-select:focus{border-color:var(--accent);}
+.settings-input{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 8px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:.68rem;outline:none;width:120px;}
+.settings-input:focus{border-color:var(--accent);}
+.settings-info{color:var(--muted2);font-size:.65rem;padding:8px;background:var(--bg);border-radius:4px;margin-top:6px;line-height:1.5;border:1px solid var(--border);}
+.color-swatch-row{display:flex;gap:6px;flex-wrap:wrap;}
+.color-swatch{width:22px;height:22px;border-radius:4px;cursor:pointer;border:2px solid transparent;transition:transform .1s;}
+.color-swatch:hover{transform:scale(1.15);}
+.color-swatch.active{border-color:#fff;transform:scale(1.15);}
+.wallpaper-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;}
+.wp-card{height:50px;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:all .15s;display:flex;align-items:center;justify-content:center;font-size:.6rem;color:rgba(255,255,255,.7);}
+.wp-card:hover{border-color:var(--accent);}
+.wp-card.active{border-color:#fff;}
+
+/* ── START MENU ── */
+#start-menu{position:fixed;bottom:44px;left:10px;background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:0 -8px 40px rgba(0,0,0,.6);padding:10px;width:220px;z-index:2000;display:none;animation:slideUp .15s ease;}
+#start-menu.open{display:block;}
+.sm-search{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:5px 10px;font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--text);outline:none;margin-bottom:8px;}
+.sm-search:focus{border-color:var(--accent);}
+.sm-section{font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;padding:4px 8px;margin-top:4px;}
+.sm-item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;cursor:pointer;font-size:.72rem;transition:background .1s;}
+.sm-item:hover{background:rgba(59,130,246,.15);color:var(--accent);}
+.sm-divider{border:none;border-top:1px solid var(--border);margin:5px 0;}
+
+/* ── NOTIFICATIONS ── */
+#notif-container{position:fixed;top:14px;right:14px;z-index:3000;display:flex;flex-direction:column;gap:6px;pointer-events:none;}
+.notif{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:10px 14px;font-size:.68rem;box-shadow:0 4px 20px rgba(0,0,0,.5);animation:slideIn .25s ease,fadeOut .3s ease 3.7s forwards;max-width:270px;pointer-events:auto;cursor:pointer;}
+.notif.success{border-left-color:var(--green);}
+.notif.error{border-left-color:var(--red);}
+.notif.warn{border-left-color:var(--yellow);}
+.notif-title{font-weight:700;margin-bottom:2px;}
+.notif-body{color:var(--muted);line-height:1.4;}
+
+/* ── CONTEXT MENU ── */
+#ctx-menu{position:fixed;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:4px;z-index:5000;display:none;box-shadow:0 8px 30px rgba(0,0,0,.5);min-width:170px;animation:slideUp .1s ease;}
+.ctx-item{padding:7px 14px;font-size:.7rem;cursor:pointer;border-radius:5px;display:flex;align-items:center;gap:8px;transition:background .08s;}
+.ctx-item:hover{background:rgba(59,130,246,.15);color:var(--accent);}
+.ctx-sep{border:none;border-top:1px solid var(--border);margin:3px 4px;}
+.ctx-item.danger:hover{background:rgba(239,68,68,.15);color:var(--red);}
+
+/* ── BSOD ── */
+#bsod{position:fixed;inset:0;background:#0078d4;z-index:99999;display:none;flex-direction:column;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;color:#fff;padding:40px;}
+#bsod .bsod-face{font-size:5rem;margin-bottom:20px;}
+#bsod h1{font-size:1.5rem;margin-bottom:20px;font-weight:700;}
+#bsod p{font-size:.8rem;line-height:1.8;max-width:600px;margin-bottom:20px;}
+#bsod .bsod-code{font-size:.7rem;opacity:.6;}
+
+/* ── SNAP ── */
+.snap-indicator{position:fixed;background:rgba(59,130,246,.2);border:2px solid var(--accent);border-radius:8px;pointer-events:none;z-index:9000;display:none;}
+
+/* ── DIALOG ── */
+.dialog-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:7000;display:flex;align-items:center;justify-content:center;}
+.dialog-box{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;min-width:300px;max-width:400px;box-shadow:0 8px 40px rgba(0,0,0,.6);}
+.dialog-title{font-size:.85rem;font-weight:700;margin-bottom:12px;color:var(--text);}
+.dialog-body{font-size:.72rem;color:var(--muted);margin-bottom:16px;line-height:1.5;}
+.dialog-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:.75rem;color:var(--text);outline:none;margin-bottom:12px;}
+.dialog-input:focus{border-color:var(--accent);}
+.dialog-btns{display:flex;gap:8px;justify-content:flex-end;}
+.dialog-btn{padding:6px 14px;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:.7rem;cursor:pointer;border:1px solid var(--border);}
+.dialog-btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+.dialog-btn:hover{opacity:.85;}
+</style>
+</head>
+<body>
+
+<!-- BSOD -->
+<div id="bsod">
+  <div class="bsod-face">:(</div>
+  <h1>Your meme PC ran into a problem.</h1>
+  <p>It tried to run Python as an OS and the GIL got confused.<br>
+  We're collecting some error info, and then we'll restart for you.<br><br>
+  <span id="bsod-pct">0% complete</span></p>
+  <div class="bsod-code">Stop code: GIL_DEADLOCK_ON_MEME_OS<br>What failed: ctypes.cdll.LoadLibrary("vibes.so")</div>
+  <button onclick="document.getElementById('bsod').style.display='none'" style="margin-top:24px;padding:8px 20px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.4);border-radius:4px;color:#fff;font-family:'JetBrains Mono',monospace;cursor:pointer;font-size:.75rem;">Continue anyway</button>
+</div>
+
+<!-- BOOT SCREEN -->
+<div id="boot">
+  <div class="logo">🐍 PyOS</div>
+  <div class="sub">version 3.14.3 "Ouroboros" — The Snake Operating System</div>
+  <div id="boot-log"></div>
+  <div id="boot-progress-wrap"><div id="boot-progress"></div></div>
+</div>
+
+<!-- LOCK SCREEN -->
+<div id="lockscreen">
+  <div class="lock-time" id="lock-time">00:00</div>
+  <div class="lock-date" id="lock-date"></div>
+  <div class="lock-user">
+    <div class="lock-avatar">🐍</div>
+    <div class="lock-username">snake</div>
+  </div>
+  <div class="lock-pin-row">
+    <div class="lock-dots" id="lock-dots"></div>
+    <div class="lock-numpad" id="lock-numpad"></div>
+    <div class="lock-hint" id="lock-hint"></div>
+  </div>
+</div>
+
+<!-- DESKTOP -->
+<div id="desktop" style="display:none;">
+  <div id="desktop-wallpaper"></div>
+  <div class="blob" style="width:700px;height:700px;background:#3b82f6;top:-250px;left:-150px;"></div>
+  <div class="blob" style="width:500px;height:500px;background:#8b5cf6;bottom:-150px;right:100px;"></div>
+  <div class="blob" style="width:350px;height:350px;background:#06b6d4;top:150px;right:-100px;"></div>
+
+  <div class="desk-icon" style="top:16px;left:16px;"   ondblclick="openApp('terminal')"><span class="icon-img">💻</span><span class="icon-label">Terminal</span></div>
+  <div class="desk-icon" style="top:106px;left:16px;"  ondblclick="openApp('files')"><span class="icon-img">📁</span><span class="icon-label">Files</span></div>
+  <div class="desk-icon" style="top:196px;left:16px;"  ondblclick="openApp('editor')"><span class="icon-img">📝</span><span class="icon-label">PyEdit</span></div>
+  <div class="desk-icon" style="top:286px;left:16px;"  ondblclick="openApp('browser')"><span class="icon-img">🌐</span><span class="icon-label">PyFox</span></div>
+  <div class="desk-icon" style="top:376px;left:16px;"  ondblclick="openApp('mail')"><span class="icon-img">📧</span><span class="icon-label">PyMail</span></div>
+  <div class="desk-icon" style="top:466px;left:16px;"  ondblclick="openApp('music')"><span class="icon-img">🎵</span><span class="icon-label">PyTunes</span></div>
+  <div class="desk-icon" style="top:556px;left:16px;"  ondblclick="openApp('paint')"><span class="icon-img">🎨</span><span class="icon-label">PyPaint</span></div>
+  <div class="desk-icon" style="top:16px;left:106px;"  ondblclick="openApp('taskmgr')"><span class="icon-img">📊</span><span class="icon-label">Task Mgr</span></div>
+  <div class="desk-icon" style="top:106px;left:106px;" ondblclick="openApp('calc')"><span class="icon-img">🧮</span><span class="icon-label">Calc</span></div>
+  <div class="desk-icon" style="top:196px;left:106px;" ondblclick="openApp('snake')"><span class="icon-img">🐍</span><span class="icon-label">Snake.py</span></div>
+  <div class="desk-icon" style="top:286px;left:106px;" ondblclick="openApp('settings')"><span class="icon-img">⚙️</span><span class="icon-label">Settings</span></div>
+  <div class="desk-icon" style="top:376px;left:106px;" ondblclick="triggerBSOD()"><span class="icon-img">💀</span><span class="icon-label">ctypes.dll</span></div>
+</div>
+
+<!-- TASKBAR -->
+<div id="taskbar" style="display:none;">
+  <button class="tb-btn start" onclick="toggleStart()">🐍 Start</button>
+  <div class="tb-sep"></div>
+  <div id="tb-windows"></div>
+  <div class="tb-sep"></div>
+  <div id="sys-tray">
+    <span class="tray-icon" id="cpu-tray">CPU 0%</span>
+    <span class="tray-icon" id="mem-tray">MEM 0%</span>
+    <span class="tray-icon" onclick="openApp('music')" title="Now playing">🎵</span>
+    <span class="tray-icon" onclick="lockScreen()" title="Lock Screen">🔒</span>
+  </div>
+  <div id="clock"></div>
+</div>
+
+<!-- START MENU -->
+<div id="start-menu">
+  <input class="sm-search" placeholder="🔍 Search apps..." id="sm-search-input" oninput="filterStartMenu(this.value)">
+  <div class="sm-section">Applications</div>
+  <div id="sm-app-list">
+    <div class="sm-item" onclick="openApp('terminal');closeStart()">💻 Terminal</div>
+    <div class="sm-item" onclick="openApp('files');closeStart()">📁 File Manager</div>
+    <div class="sm-item" onclick="openApp('editor');closeStart()">📝 PyEdit</div>
+    <div class="sm-item" onclick="openApp('browser');closeStart()">🌐 PyFox Browser</div>
+    <div class="sm-item" onclick="openApp('mail');closeStart()">📧 PyMail</div>
+    <div class="sm-item" onclick="openApp('music');closeStart()">🎵 PyTunes</div>
+    <div class="sm-item" onclick="openApp('paint');closeStart()">🎨 PyPaint</div>
+    <div class="sm-item" onclick="openApp('taskmgr');closeStart()">📊 Task Manager</div>
+    <div class="sm-item" onclick="openApp('calc');closeStart()">🧮 Calculator</div>
+    <div class="sm-item" onclick="openApp('snake');closeStart()">🐍 Snake.py</div>
+    <div class="sm-item" onclick="openApp('settings');closeStart()">⚙️ Settings</div>
+  </div>
+  <hr class="sm-divider">
+  <div class="sm-item" onclick="lockScreen();closeStart()">🔒 Lock</div>
+  <div class="sm-item" onclick="shutdown()">⛔ Shut Down</div>
+</div>
+
+<div id="notif-container"></div>
+<div id="ctx-menu"></div>
+<div class="snap-indicator" id="snap-indicator"></div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════
+//  GLOBAL OS STATE  (all settings live here)
+// ═══════════════════════════════════════════════════════
+const OS = {
+  pin: '0000',
+  accentColor: '#3b82f6',
+  bgColor: '#0a0e1a',
+  wallpaper: 'grid',
+  animations: true,
+  transparency: true,
+  showIcons: true,
+  taskbarPos: 'bottom',
+  fontSize: 'normal',
+  uiScale: '100',
+  notifications: true,
+  bootSound: false,
+  autoLock: false,
+  nightMode: false,
+};
+
+// ═══════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════
+const BOOT_LINES = [
+  '[  0.000] PyOS kernel 3.14.3-ouroboros SMP PREEMPT',
+  '[  0.012] Memory: 1337MB/420420MB (meme reserved)',
+  '[  0.025] CPU: ImaginaryCore™ @ 3.14GHz — GIL ready',
+  '[  0.048] Loading Python 3.14.3 runtime...',
+  '[  0.062] Activating GIL... LOCKED (as always)',
+  '[  0.079] Mounting /dev/meme as / (ext4, rw)... OK',
+  '[  0.095] PID 1: pythonit — running',
+  '[  0.112] pip: 16 packages outdated (gracefully ignored)',
+  '[  0.130] Starting pywayland compositor... OK',
+  '[  0.148] Starting pyaudio daemon... OK',
+  '[  0.165] Network: eth0 UP (via browser fetch)',
+  '[  0.182] Starting PyOS Desktop Environment v3.0...',
+  '[  0.200] All systems nominal. Showing lock screen. 🐍',
+];
+
+let bootIdx = 0;
+const bootLogEl = document.getElementById('boot-log');
+const bootProgressEl = document.getElementById('boot-progress');
+
+function bootTick() {
+  if (bootIdx >= BOOT_LINES.length) { setTimeout(showLockAfterBoot, 300); return; }
+  const d = document.createElement('div');
+  d.className = 'line'; d.textContent = BOOT_LINES[bootIdx];
+  bootLogEl.appendChild(d);
+  if (bootLogEl.children.length > 10) bootLogEl.children[0].remove();
+  bootProgressEl.style.width = ((bootIdx + 1) / BOOT_LINES.length * 100) + '%';
+  bootIdx++;
+  setTimeout(bootTick, 60 + Math.random() * 55);
+}
+setTimeout(bootTick, 300);
+
+function showLockAfterBoot() {
+  const boot = document.getElementById('boot');
+  boot.style.transition = 'opacity .5s';
+  boot.style.opacity = '0';
+  setTimeout(() => {
+    boot.style.display = 'none';
+    // Show desktop behind lock
+    document.getElementById('desktop').style.display = 'block';
+    document.getElementById('taskbar').style.display = 'flex';
+    updateClock(); setInterval(updateClock, 1000);
+    setInterval(updateSysTray, 2500);
+    // Now show lock screen
+    lockScreen();
+  }, 500);
+}
+
+// ═══════════════════════════════════════════════════════
+//  CLOCK & SYS TRAY
+// ═══════════════════════════════════════════════════════
+function updateClock() {
+  const n = new Date();
+  document.getElementById('clock').textContent =
+    n.toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'}) + '  ' +
+    n.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('lock-time').textContent = n.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('lock-date').textContent = n.toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'});
+}
+
+let fakeCpu = 14, fakeMem = 38, cpuHist = Array(12).fill(14);
+function updateSysTray() {
+  fakeCpu = Math.max(4, Math.min(97, fakeCpu + (Math.random()-.48)*18));
+  fakeMem = Math.max(22, Math.min(82, fakeMem + (Math.random()-.5)*4));
+  cpuHist.push(fakeCpu); cpuHist.shift();
+  document.getElementById('cpu-tray').textContent = `CPU ${fakeCpu.toFixed(0)}%`;
+  document.getElementById('mem-tray').textContent = `MEM ${fakeMem.toFixed(0)}%`;
+}
+
+// ═══════════════════════════════════════════════════════
+//  NOTIFICATIONS
+// ═══════════════════════════════════════════════════════
+function notify(body, title='PyOS', type='') {
+  if (!OS.notifications) return;
+  const c = document.getElementById('notif-container');
+  const n = document.createElement('div');
+  n.className = `notif ${type}`;
+  n.innerHTML = `<div class="notif-title">${title}</div><div class="notif-body">${body}</div>`;
+  n.onclick = () => n.remove();
+  c.appendChild(n);
+  setTimeout(() => { if (n.parentNode) n.remove(); }, 4200);
+}
+
+// ═══════════════════════════════════════════════════════
+//  LOCK SCREEN
+// ═══════════════════════════════════════════════════════
+let lockInput = '';
+
+function lockScreen() {
+  lockInput = '';
+  rebuildLockDots(false);
+  rebuildLockNumpad();
+  document.getElementById('lock-hint').textContent = '';
+  document.getElementById('lockscreen').style.display = 'flex';
+}
+
+function rebuildLockDots(error) {
+  const el = document.getElementById('lock-dots');
+  const pinLen = OS.pin.length;
+  el.innerHTML = '';
+  for (let i = 0; i < pinLen; i++) {
+    const d = document.createElement('div');
+    d.className = 'lock-dot' + (i < lockInput.length ? (error ? ' error' : ' filled') : '');
+    el.appendChild(d);
+  }
+}
+
+function rebuildLockNumpad() {
+  const pad = document.getElementById('lock-numpad');
+  pad.innerHTML = '';
+  '1 2 3 4 5 6 7 8 9 ⌫ 0 ↵'.split(' ').forEach(k => {
+    const btn = document.createElement('button');
+    btn.className = 'ln-btn';
+    btn.textContent = k;
+    btn.onclick = () => handleLockKey(k);
+    pad.appendChild(btn);
+  });
+}
+
+function handleLockKey(k) {
+  if (k === '⌫') { lockInput = lockInput.slice(0,-1); rebuildLockDots(false); return; }
+  if (k === '↵' || lockInput.length >= OS.pin.length) {
+    // Check
+    if (lockInput === OS.pin || (k !== '↵' && lockInput.length === OS.pin.length)) {
+      // allow one more digit if k is a digit
+      if (k !== '↵' && k !== '⌫') lockInput += k;
+    }
+    if (lockInput === OS.pin) {
+      document.getElementById('lockscreen').style.display = 'none';
+      notify('Unlocked! Welcome back, snake 🐍','🔓 PyOS','success');
+      return;
+    } else {
+      rebuildLockDots(true);
+      document.getElementById('lock-hint').textContent = 'Incorrect PIN';
+      setTimeout(() => { lockInput = ''; rebuildLockDots(false); document.getElementById('lock-hint').textContent = ''; }, 700);
+      return;
+    }
+  }
+  lockInput += k;
+  rebuildLockDots(false);
+  if (lockInput.length === OS.pin.length) {
+    setTimeout(() => {
+      if (lockInput === OS.pin) {
+        document.getElementById('lockscreen').style.display = 'none';
+        notify('Unlocked! Welcome back, snake 🐍','🔓 PyOS','success');
+      } else {
+        rebuildLockDots(true);
+        document.getElementById('lock-hint').textContent = 'Incorrect PIN';
+        setTimeout(() => { lockInput = ''; rebuildLockDots(false); document.getElementById('lock-hint').textContent = ''; }, 700);
+      }
+    }, 100);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  START MENU
+// ═══════════════════════════════════════════════════════
+function toggleStart() {
+  const m = document.getElementById('start-menu');
+  m.classList.toggle('open');
+  if (m.classList.contains('open')) document.getElementById('sm-search-input').focus();
+}
+function closeStart() { document.getElementById('start-menu').classList.remove('open'); }
+function filterStartMenu(q) {
+  document.querySelectorAll('#sm-app-list .sm-item').forEach(el => {
+    el.style.display = el.textContent.toLowerCase().includes(q.toLowerCase()) ? 'flex' : 'none';
+  });
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#start-menu') && !e.target.closest('.start')) closeStart();
+});
+
+// ═══════════════════════════════════════════════════════
+//  CONTEXT MENU
+// ═══════════════════════════════════════════════════════
+document.getElementById('desktop').addEventListener('contextmenu', e => {
+  if (e.target.closest('.window')) return;
+  e.preventDefault();
+  showCtxMenu(e.clientX, e.clientY, [
+    { label:'💻 Open Terminal', action:()=>openApp('terminal') },
+    { label:'📁 Open Files', action:()=>openApp('files') },
+    null,
+    { label:'🔄 Refresh', action:()=>notify('Desktop refreshed!','✅','success') },
+    { label:'⚙️ Settings', action:()=>openApp('settings') },
+    null,
+    { label:'💀 Crash System', action:triggerBSOD, danger:true },
+  ]);
+});
+document.addEventListener('click', () => document.getElementById('ctx-menu').style.display='none');
+
+function showCtxMenu(x, y, items) {
+  const menu = document.getElementById('ctx-menu');
+  menu.innerHTML = '';
+  items.forEach(item => {
+    if (!item) { const s=document.createElement('hr'); s.className='ctx-sep'; menu.appendChild(s); return; }
+    const d = document.createElement('div');
+    d.className = `ctx-item${item.danger?' danger':''}`;
+    d.textContent = item.label;
+    d.onclick = () => { item.action(); menu.style.display='none'; };
+    menu.appendChild(d);
+  });
+  menu.style.left = Math.min(x, window.innerWidth-185)+'px';
+  menu.style.top  = Math.min(y, window.innerHeight-300)+'px';
+  menu.style.display = 'block';
+}
+
+// ═══════════════════════════════════════════════════════
+//  BSOD
+// ═══════════════════════════════════════════════════════
+function triggerBSOD() {
+  document.getElementById('bsod').style.display = 'flex';
+  let p = 0;
+  const iv = setInterval(() => {
+    p += Math.floor(Math.random()*12)+1;
+    if (p >= 100) { p = 100; clearInterval(iv); }
+    document.getElementById('bsod-pct').textContent = `${p}% complete`;
+  }, 280);
+}
+
+// ═══════════════════════════════════════════════════════
+//  WINDOW MANAGER
+// ═══════════════════════════════════════════════════════
+let winZ = 200;
+const appWindows = {};  // appName -> [winId, ...]
+
+const APP_CFG = {
+  terminal: {title:'Terminal',  icon:'💻', w:580, h:400, x:130, y:60,  multi:true},
+  files:    {title:'File Mgr',  icon:'📁', w:500, h:360, x:180, y:100},
+  editor:   {title:'PyEdit',    icon:'📝', w:560, h:430, x:200, y:70,  multi:true},
+  browser:  {title:'PyFox',     icon:'🌐', w:700, h:500, x:140, y:50},
+  mail:     {title:'PyMail',    icon:'📧', w:650, h:430, x:130, y:80},
+  music:    {title:'PyTunes',   icon:'🎵', w:300, h:490, x:450, y:60},
+  paint:    {title:'PyPaint',   icon:'🎨', w:600, h:470, x:150, y:60},
+  taskmgr:  {title:'Task Mgr',  icon:'📊', w:520, h:400, x:160, y:70},
+  calc:     {title:'Calculator',icon:'🧮', w:270, h:440, x:400, y:100},
+  snake:    {title:'Snake.py',  icon:'🐍', w:340, h:460, x:320, y:60},
+  settings: {title:'Settings',  icon:'⚙️', w:480, h:440, x:220, y:80},
+};
+
+function openApp(name) {
+  const cfg = APP_CFG[name]; if (!cfg) return;
+  if (!cfg.multi && appWindows[name]?.length) {
+    const w = document.getElementById(appWindows[name][0]);
+    if (w) { w.classList.remove('minimized'); focusWin(appWindows[name][0]); return; }
+  }
+  const id = 'win-'+Date.now()+'-'+Math.random().toString(36).slice(2,5);
+  const cnt = (appWindows[name]||[]).length;
+  const ox = Math.min(cfg.x+cnt*22, window.innerWidth-cfg.w-20);
+  const oy = Math.min(cfg.y+cnt*22, window.innerHeight-cfg.h-60);
+
+  const win = document.createElement('div');
+  win.className='window'; win.id=id; win.dataset.app=name;
+  win.style.cssText=`width:${cfg.w}px;height:${cfg.h}px;left:${ox}px;top:${oy}px;`;
+  win.innerHTML=`
+    <div class="window-title">
+      <span class="win-icon">${cfg.icon}</span>
+      <span class="win-label" id="wlbl-${id}">${cfg.title}</span>
+      <div class="win-controls">
+        <button class="win-btn win-min"   onclick="minimizeWin('${id}')" title="Minimize"></button>
+        <button class="win-btn win-max"   onclick="toggleMax('${id}')"  title="Maximize"></button>
+        <button class="win-btn win-close" onclick="closeWin('${id}')"   title="Close"></button>
+      </div>
+    </div>
+    <div class="window-body" id="wbody-${id}"></div>
+    <div class="resize-handle" id="rh-${id}"></div>`;
+
+  document.getElementById('desktop').appendChild(win);
+  buildApp(name, document.getElementById(`wbody-${id}`), id);
+  makeDraggable(win, id);
+  makeResizable(win, id);
+  win.addEventListener('mousedown', ()=>focusWin(id), true);
+  if (!appWindows[name]) appWindows[name]=[];
+  appWindows[name].push(id);
+  addTbBtn(name, id, cfg);
+  focusWin(id);
+}
+
+function buildApp(name, body, id) {
+  ({terminal:buildTerminal,files:buildFileManager,editor:buildEditor,browser:buildBrowser,
+    mail:buildMail,music:buildMusic,paint:buildPaint,taskmgr:buildTaskMgr,
+    calc:buildCalc,snake:buildSnake,settings:buildSettings})[name]?.(body,id);
+}
+
+function closeWin(id) {
+  const w = document.getElementById(id); if (!w) return;
+  const name = w.dataset.app;
+  if (name==='snake') cleanSnake(id);
+  if (name==='taskmgr') cleanTM(id);
+  if (name==='music') cleanMusic(id);
+  w.remove();
+  appWindows[name] = (appWindows[name]||[]).filter(i=>i!==id);
+  removeTbBtn(id);
+}
+
+function minimizeWin(id) {
+  const w=document.getElementById(id); if (!w) return;
+  const minimized = !w.classList.contains('minimized');
+  w.classList.toggle('minimized', minimized);
+  document.getElementById('tb-'+id)?.classList.toggle('active', !minimized);
+}
+
+const maxState = {};
+function toggleMax(id) {
+  const w=document.getElementById(id); if (!w) return;
+  w.classList.remove('snapped-left','snapped-right');
+  if (!maxState[id]) {
+    maxState[id]={l:w.style.left,t:w.style.top,w:w.style.width,h:w.style.height};
+    Object.assign(w.style,{left:'0',top:'0',width:'100vw',height:'calc(100vh - 40px)',transition:'all .15s'});
+  } else {
+    const s=maxState[id]; delete maxState[id];
+    Object.assign(w.style,{left:s.l,top:s.t,width:s.w,height:s.h,transition:''});
+  }
+}
+
+function focusWin(id) {
+  document.querySelectorAll('.window').forEach(w=>w.classList.remove('focused'));
+  document.querySelectorAll('#tb-windows .tb-btn').forEach(b=>b.classList.remove('active'));
+  const w=document.getElementById(id);
+  if (w) { w.classList.add('focused'); w.style.zIndex=++winZ; }
+  document.getElementById('tb-'+id)?.classList.add('active');
+}
+
+function addTbBtn(name, id, cfg) {
+  const btn=document.createElement('button');
+  btn.className='tb-btn active'; btn.id='tb-'+id;
+  btn.textContent=cfg.icon+' '+cfg.title;
+  btn.onclick=()=>{
+    const w=document.getElementById(id); if (!w) return;
+    if (w.classList.contains('minimized')) { w.classList.remove('minimized'); focusWin(id); }
+    else if (w.classList.contains('focused')) { w.classList.add('minimized'); btn.classList.remove('active'); }
+    else focusWin(id);
+  };
+  btn.addEventListener('contextmenu', e=>{
+    e.preventDefault(); e.stopPropagation();
+    showCtxMenu(e.clientX, e.clientY,[
+      {label:'↗ Restore',   action:()=>{const w=document.getElementById(id);if(w){w.classList.remove('minimized');focusWin(id);}}},
+      {label:'⤢ Maximize',  action:()=>toggleMax(id)},
+      {label:'← Snap Left', action:()=>snapWin(id,'left')},
+      {label:'→ Snap Right',action:()=>snapWin(id,'right')},
+      null,
+      {label:'✕ Close',     action:()=>closeWin(id), danger:true},
+    ]);
+  });
+  document.getElementById('tb-windows').appendChild(btn);
+}
+function removeTbBtn(id) { document.getElementById('tb-'+id)?.remove(); }
+
+function snapWin(id, side) {
+  const w=document.getElementById(id); if (!w) return;
+  delete maxState[id];
+  w.classList.remove('snapped-left','snapped-right');
+  void w.offsetWidth;
+  w.classList.add(side==='left'?'snapped-left':'snapped-right');
+}
+
+function makeDraggable(win, id) {
+  const title=win.querySelector('.window-title');
+  const si=document.getElementById('snap-indicator');
+  let drag=false, ox=0, oy=0;
+  title.addEventListener('mousedown', e=>{
+    if (e.target.closest('.win-controls')) return;
+    if (maxState[id]) { toggleMax(id); ox=e.clientX*.5; oy=e.clientY*.3; drag=true; e.preventDefault(); return; }
+    drag=true; ox=e.clientX-win.offsetLeft; oy=e.clientY-win.offsetTop; e.preventDefault();
+  });
+  document.addEventListener('mousemove', e=>{
+    if (!drag) return;
+    win.style.left=Math.max(0,Math.min(e.clientX-ox,window.innerWidth-win.offsetWidth))+'px';
+    win.style.top =Math.max(0,Math.min(e.clientY-oy,window.innerHeight-80))+'px';
+    win.classList.remove('snapped-left','snapped-right');
+    if (e.clientX<8)                         si.style.cssText='display:block;left:0;top:0;width:50vw;height:calc(100vh - 40px);';
+    else if (e.clientX>window.innerWidth-8)  si.style.cssText='display:block;left:50vw;top:0;width:50vw;height:calc(100vh - 40px);';
+    else                                     si.style.display='none';
+  });
+  document.addEventListener('mouseup', e=>{
+    if (!drag) return; drag=false; si.style.display='none';
+    if (e.clientX<8)                        snapWin(id,'left');
+    else if (e.clientX>window.innerWidth-8) snapWin(id,'right');
+    delete maxState[id];
+  });
+}
+
+function makeResizable(win, id) {
+  const h=document.getElementById('rh-'+id);
+  let r=false, ox=0, oy=0, ow=0, oh=0;
+  h.addEventListener('mousedown', e=>{ r=true; ox=e.clientX; oy=e.clientY; ow=win.offsetWidth; oh=win.offsetHeight; e.preventDefault(); e.stopPropagation(); });
+  document.addEventListener('mousemove', e=>{ if (!r) return; win.style.width=Math.max(280,ow+e.clientX-ox)+'px'; win.style.height=Math.max(180,oh+e.clientY-oy)+'px'; });
+  document.addEventListener('mouseup', ()=>r=false);
+}
+
+// ═══════════════════════════════════════════════════════
+//  VIRTUAL FS
+// ═══════════════════════════════════════════════════════
+const VFS = {
+  '/':['home','usr','dev','etc','mnt','var'],
+  '/home':['snake'],
+  '/home/snake':['hello.py','vibes.py','requirements.txt','Documents','Downloads','Desktop','.bashrc'],
+  '/home/snake/Documents':['essay.txt','todo.md','manifesto.py'],
+  '/home/snake/Downloads':['pip-22.0.tar.gz','snake_game_v1.py','meme.png'],
+  '/home/snake/Desktop':['shortcut.lnk'],
+  '/usr':['bin','lib'],'usr/bin':['python3','pip','bash'],
+  '/etc':['python.conf','meme.conf','hosts'],
+  '/dev':['null','meme','random'],
+  '/var':['log'],'/var/log':['syslog','python.log'],
+};
+const VFS_CONTENT = {
+  'hello.py':'#!/usr/bin/env python3\n\ndef greet(name: str) -> str:\n    return f"Hello, {name}!"\n\nif __name__ == "__main__":\n    print(greet("PyOS"))',
+  'vibes.py':'import vibes\nvibes.set_level("maximum")\nvibes.activate()\nprint("✨ Vibes: ACTIVATED")',
+  'requirements.txt':'meme>=3.14\nvibes~=420.0\npython>=3.14\nsnake-engine==2.0',
+  '.bashrc':'export PATH="/usr/bin/python3:$PATH"\nalias python=python3\nalias please="sudo"',
+  'essay.txt':'Why Python Should Be an OS\n==========================\n1. import os — you literally import the OS\n2. Everything is an object\n3. Conclusion: Python IS an OS. QED.',
+  'todo.md':'# TODO\n- [x] Make meme OS\n- [x] Add snake game\n- [ ] Make it actually boot hardware\n- [ ] Fix the GIL',
+  'manifesto.py':'print("Python is the only true language")\nprint("Indentation is sacred")\nprint("The GIL is a feature, not a bug")',
+  'python.conf':'[python]\nversion = 3.14.3\ngil = enabled\nvibes = maximum',
+  'hosts':'127.0.0.1   localhost\n127.0.0.1   pyos.local\n8.8.8.8     google.com',
+  'syslog':'[00:00] kernel: PyOS 3.14.3 booted\n[00:01] GIL: locked\n[00:05] pip: 16 packages ignored',
+};
+
+// ═══════════════════════════════════════════════════════
+//  TERMINAL
+// ═══════════════════════════════════════════════════════
+function buildTerminal(body, id) {
+  const st = {cwd:'/home/snake', hist:[], histIdx:-1};
+  body.innerHTML=`
+    <div class="term-out" id="tout-${id}">
+      <div class="t-line sys">PyOS Terminal 3.14.3 — type 'help' for commands</div>
+    </div>
+    <div class="term-input-row">
+      <span class="term-prompt-label" id="tprompt-${id}">snake@pyos:~$</span>
+      <input class="term-inp" id="tinput-${id}" autocomplete="off" spellcheck="false">
+    </div>`;
+  const out=document.getElementById(`tout-${id}`);
+  const inp=document.getElementById(`tinput-${id}`);
+  const prm=document.getElementById(`tprompt-${id}`);
+  const updP=()=>{ prm.textContent=`snake@pyos:${st.cwd=='/home/snake'?'~':st.cwd}$`; };
+  const pr=(txt,cls='out')=>{
+    String(txt).split('\n').forEach(l=>{ const d=document.createElement('div'); d.className='t-line '+cls; d.textContent=l; out.appendChild(d); });
+    out.scrollTop=out.scrollHeight;
+  };
+  inp.addEventListener('keydown', e=>{
+    if (e.key==='Enter') {
+      const cmd=inp.value.trim();
+      pr(`${prm.textContent} ${cmd}`,'sys');
+      if (cmd){st.hist.unshift(cmd);st.histIdx=-1;}
+      inp.value='';
+      runCmd(cmd,pr,st,updP,id);
+    } else if (e.key==='ArrowUp'){st.histIdx=Math.min(st.histIdx+1,st.hist.length-1);inp.value=st.hist[st.histIdx]||'';e.preventDefault();}
+    else if (e.key==='ArrowDown'){st.histIdx=Math.max(st.histIdx-1,-1);inp.value=st.histIdx>=0?st.hist[st.histIdx]:'';e.preventDefault();}
+    else if (e.key==='Tab'){e.preventDefault();const w=inp.value.split(' ').pop();const m=(VFS[st.cwd]||[]).filter(f=>f.startsWith(w));if(m.length===1){const p=inp.value.split(' ');p[p.length-1]=m[0];inp.value=p.join(' ');}else if(m.length>1)pr(m.join('  '),'sys');}
+    else if (e.key==='l'&&e.ctrlKey){e.preventDefault();out.innerHTML='';}
+  });
+  out.addEventListener('click',()=>inp.focus());
+  setTimeout(()=>inp.focus(),80);
+}
+
+function resolvePath(cwd, tgt) {
+  if (tgt.startsWith('/')) return tgt.replace(/\/$/,'') || '/';
+  const parts = (cwd+'/'+tgt).split('/').filter(Boolean);
+  const s=[]; parts.forEach(p=>{if(p==='..')s.pop();else if(p!=='.')s.push(p);});
+  return '/'+s.join('/');
+}
+
+function runCmd(raw, pr, st, updP, id) {
+  if (!raw) return;
+  const parts=raw.trim().split(/\s+/), cmd=parts[0].toLowerCase();
+  const cmds = {
+    help(){pr(`ls  cd  pwd  cat  echo  mkdir  rm  touch  find  grep\npython3  pip  git  top  clear  uname  whoami  date\ncowsay  neofetch  history  man  sudo  curl  exit`,'sys');},
+    ls(){const p=parts[1]?resolvePath(st.cwd,parts[1]):st.cwd;const e=VFS[p];if(!e){pr(`ls: ${parts[1]}: No such directory`,'err');return;}pr(e.length?e.join('   '):'(empty)');},
+    cd(){const t=parts[1];if(!t||t==='~'){st.cwd='/home/snake';updP();return;}if(t==='..'){st.cwd=st.cwd.split('/').slice(0,-1).join('/')||'/';updP();return;}const np=resolvePath(st.cwd,t);if(VFS[np]!==undefined){st.cwd=np;updP();}else pr(`bash: cd: ${t}: No such file or directory`,'err');},
+    pwd(){pr(st.cwd);},
+    whoami(){pr('snake');},
+    date(){pr(new Date().toString());},
+    uname(){pr(parts[1]==='-a'?'PyOS 3.14.3-ouroboros x86_64 Python3 GNU/Linux':'PyOS');},
+    cat(){if(!parts[1]){pr('cat: missing operand','err');return;}const c=VFS_CONTENT[parts[1]]||VFS_CONTENT[parts[1].replace(/.*\//,'')];c?pr(c):pr(`cat: ${parts[1]}: No such file`,'err');},
+    echo(){pr(parts.slice(1).join(' '));},
+    mkdir(){pr(`mkdir: created '${parts[1]||'newdir'}' (fake)`,'warn');},
+    touch(){pr(`touch: created '${parts[1]||'file'}' (fake)`,'warn');},
+    rm(){if((parts.includes('-rf')||parts.includes('-r'))&&(parts.includes('/')||parts.includes('/*'))){pr('Sending rm -rf /...','warn');setTimeout(()=>pr('Removing /usr/lib/python3.14...','err'),200);setTimeout(()=>pr('Removing /home/snake/vibes.py... ✗ (vibes are immutable)','err'),500);setTimeout(()=>{pr('KERNEL PANIC: Cannot delete memes','err');triggerBSOD();},900);}else pr(`removed '${parts[1]||'file'}' (fake)`);},
+    find(){const q=parts[1]||'';const r=[];Object.entries(VFS).forEach(([d,fs])=>fs.forEach(f=>{if(f.includes(q))r.push(d+'/'+f);}));pr(r.length?r.join('\n'):'No files found');},
+    grep(){if(parts.length<3){pr('Usage: grep <pattern> <file>','err');return;}const c=VFS_CONTENT[parts[2]]||'';if(!c){pr(`grep: ${parts[2]}: No such file`,'err');return;}const lines=c.split('\n').filter(l=>l.includes(parts[1]));pr(lines.length?lines.join('\n'):`(no matches for '${parts[1]}')`);},
+    history(){st.hist.slice(0,20).forEach((h,i)=>pr(`  ${i+1}  ${h}`));},
+    clear(){document.getElementById(`tout-${id}`).innerHTML='';},
+    top(){pr('  PID  CPU    MEM   COMMAND\n    1  0.1%  12MB  pythonit\n    2  45%   38MB  python3 (GIL holder)\n    3  8%    22MB  pywayland\n    7  99%   60MB  meme_loader','sys');},
+    python3(){
+      const arg=parts.slice(1).join(' ');
+      if(!arg){pr('Python 3.14.3 — type python3 <expr>','sys');return;}
+      const builtins={'import this':'The Zen of Python:\n\nBeautiful is better than ugly.\nExplicit is better than implicit.\nSimple is better than complex.','import ctypes':'WARNING: ctypes loaded. Expect BSOD shortly.','exit()':'__EXIT__','quit()':'__EXIT__'};
+      if (arg in builtins){if(builtins[arg]==='__EXIT__'){pr('Exiting...','sys');return;}if(arg.includes('ctypes')){pr(builtins[arg],'warn');setTimeout(triggerBSOD,1500);return;}pr(builtins[arg]);return;}
+      try{const r=Function('"use strict";return ('+arg.replace(/print\((.+)\)/,'$1')+')')();if(r!==undefined)pr(String(r));}
+      catch{pr(`NameError: not recognized on a meme OS\nTry: python3 print("hello world")`,'err');}
+    },
+    pip(){const s=parts[1],p=parts.slice(2).join(' ')||'pkg';
+      if(s==='install'){pr(`Collecting ${p}...`,'sys');setTimeout(()=>pr(`Downloading ${p}-1.0-py3-none-any.whl`,'sys'),300);setTimeout(()=>pr(`Successfully installed ${p}-1.0 ✅`,'sys'),900);}
+      else if(s==='list'){pr('meme 3.14  vibes 420  snake-engine 2.0  pip 22.3','out');}
+      else pr('Usage: pip install <pkg> | pip list','warn');},
+    git(){const s=parts[1];if(s==='init')pr('Initialized empty repo (no remote, this is a meme OS)');else if(s==='status')pr('On branch main\nnothing to commit (there is no disk)');else if(s==='log')pr('commit deadbeef\nAuthor: Snake\nDate: Now\n\n    feat: made OS a meme');else pr(`git: '${s}' not found`,'warn');},
+    man(){pr(`MAN(1)\n\n${parts[1]||'?'} — a command that works on PyOS\n\nDESCRIPTION\n   Does what you expect. GIL applies.\n\nBUGS\n   Yes.`);},
+    sudo(){pr('[sudo] password for snake:','sys');setTimeout(()=>pr('snake is not in sudoers. Incident reported to /dev/null.','err'),700);},
+    curl(){const u=parts[1]||'';if(!u){pr('curl: no URL','err');return;}pr(`Connecting to ${u}...`,'sys');setTimeout(()=>pr(`curl: Could not resolve host (try the browser instead)`,'err'),500);},
+    cowsay(){const m=parts.slice(1).join(' ')||'PyOS is a meme OS';pr(` ${'-'.repeat(m.length+2)} \n< ${m} >\n ${'‾'.repeat(m.length+2)} \n        \\   ^__^\n         \\  (oo)\\______\n            (__)\\      )\\/\\\n                ||---w |\n                ||    ||`);},
+    neofetch(){pr(`    🐍🐍🐍🐍🐍       snake@pyos\n  🐍  PyOS 3.14  🐍  ──────────────\n  🐍  Ouroboros  🐍  OS: PyOS 3.14.3\n    🐍🐍🐍🐍🐍       Kernel: python-meme\n                    CPU: ImaginaryCore @ 3.14GHz\n                    Memory: 420MB / 1337MB\n                    Theme: Dark (mandatory)`,'sys');},
+    exit(){closeWin(id);},
+  };
+  if(cmds[cmd]) cmds[cmd]();
+  else pr(`pysh: ${cmd}: command not found (try 'help')`,'err');
+}
+
+// ═══════════════════════════════════════════════════════
+//  FILE MANAGER
+// ═══════════════════════════════════════════════════════
+function buildFileManager(body, id) {
+  let cwd='/home/snake', hist=['/home/snake'], hIdx=0, viewMode='grid', selected=null;
+  body.innerHTML=`
+    <div class="fm-wrap">
+      <div class="fm-toolbar">
+        <button class="fm-btn" id="fmbk-${id}">←</button>
+        <button class="fm-btn" id="fmfw-${id}" style="opacity:.3" disabled>→</button>
+        <button class="fm-btn" id="fmhm-${id}">🏠</button>
+        <button class="fm-btn" id="fmup-${id}">↑</button>
+        <input class="fm-path-bar" id="fmpath-${id}" value="${cwd}">
+        <button class="fm-btn" onclick="fmToggleView_${id}()" title="Toggle view">⊞</button>
+        <button class="fm-btn" onclick="fmNewFolder_${id}()">+ Folder</button>
+      </div>
+      <div class="fm-body" id="fmbody-${id}"></div>
+      <div class="fm-statusbar" id="fmstat-${id}">Ready</div>
+    </div>`;
+
+  function nav(path) {
+    if (VFS[path]===undefined) return;
+    if (path!==hist[hIdx]){hist.splice(hIdx+1);hist.push(path);hIdx=hist.length-1;}
+    cwd=path; selected=null; render();
+    document.getElementById(`fmpath-${id}`).value=path;
+    document.getElementById(`fmbk-${id}`).style.opacity=hIdx>0?'1':'.3';
+    document.getElementById(`fmfw-${id}`).disabled=hIdx>=hist.length-1;
+    document.getElementById(`fmfw-${id}`).style.opacity=hIdx>=hist.length-1?'.3':'1';
+  }
+
+  function render() {
+    const bodyEl=document.getElementById(`fmbody-${id}`);
+    const entries=VFS[cwd]||[];
+    document.getElementById(`fmstat-${id}`).textContent=`${entries.length} items — ${cwd}`;
+    if (viewMode==='grid') {
+      bodyEl.innerHTML=`<div class="fm-grid" id="fmgrid-${id}"></div>`;
+      const grid=document.getElementById(`fmgrid-${id}`);
+      if (!entries.length){grid.innerHTML='<div style="color:var(--muted);font-size:.68rem;padding:10px;">Empty</div>';return;}
+      entries.forEach(name=>{
+        const isDir=VFS[cwd+'/'+name]!==undefined;
+        const item=document.createElement('div');
+        item.className='fm-item';
+        item.innerHTML=`<div class="fi-icon">${isDir?'📁':getFileIcon(name)}</div><div class="fi-name">${name}</div>`;
+        item.onclick=()=>{document.querySelectorAll(`#fmgrid-${id} .fm-item`).forEach(i=>i.classList.remove('selected'));item.classList.add('selected');selected=name;document.getElementById(`fmstat-${id}`).textContent=`Selected: ${name}`;};
+        item.ondblclick=()=>{if(isDir)nav(cwd+'/'+name);else openInEditor(name,cwd);};
+        item.addEventListener('contextmenu',e=>{e.preventDefault();e.stopPropagation();fmItemCtx(e,name,isDir,cwd,nav);});
+        grid.appendChild(item);
+      });
+    } else {
+      bodyEl.innerHTML='<div style="padding:4px 8px;font-size:.6rem;color:var(--muted);border-bottom:1px solid var(--border);display:flex;gap:20px;"><span style="flex:1">Name</span><span>Type</span><span>Size</span></div>';
+      entries.forEach(name=>{
+        const isDir=VFS[cwd+'/'+name]!==undefined;
+        const row=document.createElement('div');
+        row.className='fm-list-row';
+        row.innerHTML=`<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${isDir?'📁':'📄'} ${name}</span><span style="color:var(--muted);width:60px;">${isDir?'Folder':'File'}</span><span style="color:var(--muted);width:50px;">${isDir?'—':'~1KB'}</span>`;
+        row.onclick=()=>{document.querySelectorAll(`#fmbody-${id} .fm-list-row`).forEach(r=>r.classList.remove('selected'));row.classList.add('selected');selected=name;};
+        row.ondblclick=()=>{if(isDir)nav(cwd+'/'+name);else openInEditor(name,cwd);};
+        bodyEl.appendChild(row);
+      });
+    }
+  }
+
+  function openInEditor(name,dir){
+    openApp('editor');
+    setTimeout(()=>{const content=VFS_CONTENT[name]||`# ${name}`;notify(`Opened ${name} in PyEdit`,'📝');},200);
+  }
+
+  document.getElementById(`fmbk-${id}`).onclick=()=>{if(hIdx>0){hIdx--;nav(hist[hIdx]);}};
+  document.getElementById(`fmfw-${id}`).onclick=()=>{if(hIdx<hist.length-1){hIdx++;nav(hist[hIdx]);}};
+  document.getElementById(`fmhm-${id}`).onclick=()=>nav('/home/snake');
+  document.getElementById(`fmup-${id}`).onclick=()=>{const up=cwd.split('/').slice(0,-1).join('/')||'/';nav(up);};
+  document.getElementById(`fmpath-${id}`).addEventListener('keydown',e=>{if(e.key==='Enter'){const v=e.target.value;if(VFS[v]!==undefined)nav(v);else notify('Path not found','⚠️','warn');}});
+
+  window[`fmToggleView_${id}`]=()=>{viewMode=viewMode==='grid'?'list':'grid';render();};
+  window[`fmNewFolder_${id}`]=()=>{
+    showDialog('New Folder','Enter folder name:','New Folder',(name)=>{
+      if(name){const p=cwd+'/'+name;VFS[p]=[];(VFS[cwd]||(VFS[cwd]=[])).push(name);render();notify(`Created folder '${name}'`,'📁','success');}
+    });
+  };
+  render();
+}
+
+function fmItemCtx(e,name,isDir,cwd,nav){
+  showCtxMenu(e.clientX,e.clientY,[
+    {label:'📂 Open',action:()=>{if(isDir)nav(cwd+'/'+name);else openApp('editor');}},
+    {label:'📋 Copy Path',action:()=>notify(`Copied: ${cwd}/${name}`,'📋','success')},
+    {label:'✏️ Rename',action:()=>showDialog('Rename','New name:',name,(n)=>{if(n&&n!==name){const i=VFS[cwd].indexOf(name);if(i>-1){VFS[cwd][i]=n;notify(`Renamed to '${n}'`,'✏️','success');}}})},
+    null,
+    {label:'🗑️ Delete',action:()=>{VFS[cwd]=(VFS[cwd]||[]).filter(f=>f!==name);notify(`Deleted '${name}'`,'🗑️','warn');},danger:true},
+  ]);
+}
+
+function getFileIcon(n){return{'.py':'🐍','.txt':'📄','.md':'📝','.gz':'📦','.tar':'📦','.png':'🖼️','.jpg':'🖼️','.conf':'⚙️','.log':'📋','.lnk':'🔗'}[n.slice(n.lastIndexOf('.'))]||'📄';}
+
+// ═══════════════════════════════════════════════════════
+//  PYEDIT
+// ═══════════════════════════════════════════════════════
+function buildEditor(body, id) {
+  let tabs=[{name:'untitled.py',content:'#!/usr/bin/env python3\n\n',modified:false}], active=0;
+  body.innerHTML=`
+    <div class="editor-wrap">
+      <div class="editor-toolbar">
+        <div class="editor-tabs" id="etabs-${id}"></div>
+        <button class="ed-btn" onclick="edNew_${id}()">+ New</button>
+        <button class="ed-btn" onclick="edOpen_${id}()">📂</button>
+        <button class="ed-btn" onclick="edSave_${id}()">💾 Save</button>
+        <button class="ed-btn" onclick="edRun_${id}()">▶ Run</button>
+        <button class="ed-btn" onclick="edFmt_${id}()">⎁ Fmt</button>
+        <button class="ed-btn" onclick="edFind_${id}()">🔍</button>
+      </div>
+      <div class="editor-area-wrap">
+        <div class="line-nums" id="elns-${id}">1</div>
+        <textarea class="editor-ta" id="eta-${id}" spellcheck="false"></textarea>
+      </div>
+      <div class="editor-statusbar">
+        <span id="elang-${id}">Python 3</span>
+        <span id="epos-${id}">Ln 1, Col 1</span>
+        <span id="eenc-${id}">UTF-8</span>
+        <span id="emod-${id}">—</span>
+      </div>
+    </div>`;
+
+  const ta=document.getElementById(`eta-${id}`);
+  const lns=document.getElementById(`elns-${id}`);
+
+  function renderTabs(){
+    const c=document.getElementById(`etabs-${id}`); c.innerHTML='';
+    tabs.forEach((t,i)=>{
+      const tab=document.createElement('div');
+      tab.className='editor-tab'+(i===active?' active':'');
+      tab.innerHTML=`${t.name+(t.modified?' •':'')} <span class="tab-close" onclick="edCloseTab_${id}(${i},event)">×</span>`;
+      tab.onclick=()=>{tabs[active].content=ta.value;active=i;loadTab();};
+      c.appendChild(tab);
+    });
+  }
+  function loadTab(){ta.value=tabs[active].content;updateLines();updatePos();renderTabs();document.getElementById(`wlbl-${id}`).textContent=`PyEdit — ${tabs[active].name}`;}
+  function updateLines(){const n=ta.value.split('\n').length;lns.innerHTML=Array.from({length:n},(_,i)=>i+1).join('\n');lns.scrollTop=ta.scrollTop;}
+  function updatePos(){const b=ta.value.slice(0,ta.selectionStart).split('\n');document.getElementById(`epos-${id}`).textContent=`Ln ${b.length}, Col ${b[b.length-1].length+1}`;document.getElementById(`elang-${id}`).textContent=tabs[active].name.endsWith('.py')?'Python 3':tabs[active].name.endsWith('.md')?'Markdown':'Plain Text';document.getElementById(`emod-${id}`).textContent=tabs[active].modified?'● Modified':'—';}
+
+  ta.addEventListener('input',()=>{tabs[active].content=ta.value;tabs[active].modified=true;updateLines();updatePos();renderTabs();});
+  ta.addEventListener('keyup',updatePos); ta.addEventListener('click',updatePos);
+  ta.addEventListener('scroll',()=>{lns.scrollTop=ta.scrollTop;});
+  ta.addEventListener('keydown',e=>{
+    if(e.key==='Tab'){e.preventDefault();const s=ta.selectionStart;ta.value=ta.value.slice(0,s)+'    '+ta.value.slice(ta.selectionEnd);ta.selectionStart=ta.selectionEnd=s+4;updateLines();}
+    if(e.key==='s'&&(e.ctrlKey||e.metaKey)){e.preventDefault();edSave();}
+    if(e.key==='n'&&(e.ctrlKey||e.metaKey)){e.preventDefault();edNewTab();}
+  });
+
+  function edSave(){tabs[active].modified=false;notify(`${tabs[active].name} saved!`,'💾 PyEdit','success');renderTabs();updatePos();}
+  function edNewTab(){tabs[active].content=ta.value;tabs.push({name:`untitled${tabs.length}.py`,content:'',modified:false});active=tabs.length-1;loadTab();}
+
+  window[`edNew_${id}`]=edNewTab;
+  window[`edSave_${id}`]=edSave;
+  window[`edOpen_${id}`]=()=>showDialog('Open File','Filename (from /home/snake):','hello.py',(n)=>{const c=VFS_CONTENT[n];if(c){tabs[active].content=ta.value;tabs.push({name:n,content:c,modified:false});active=tabs.length-1;loadTab();}else notify(`${n}: not found`,'⚠️','warn');});
+  window[`edRun_${id}`]=()=>{notify(`Running ${tabs[active].name}...`,'▶ PyEdit','success');openApp('terminal');};
+  window[`edFmt_${id}`]=()=>{notify('black: 1 file reformatted ✅','⎁ Format','success');};
+  window[`edFind_${id}`]=()=>showDialog('Find','Search text:','',(q)=>{if(!q)return;const idx=ta.value.indexOf(q);if(idx>-1){ta.focus();ta.setSelectionRange(idx,idx+q.length);notify(`Found "${q}"`,'🔍');}else notify(`"${q}" not found`,'🔍','warn');});
+  window[`edCloseTab_${id}`]=(i,e)=>{e.stopPropagation();if(tabs.length===1){tabs[0]={name:'untitled.py',content:'',modified:false};}else{tabs.splice(i,1);if(active>=tabs.length)active=tabs.length-1;}loadTab();};
+  loadTab();
+}
+
+// ═══════════════════════════════════════════════════════
+//  BROWSER — real iframe + home page
+// ═══════════════════════════════════════════════════════
+function buildBrowser(body, id) {
+  // Tabs: [{url, title, iframe}]
+  let btabs=[{url:'home',title:'🏠 New Tab',frameId:null}], bActive=0;
+  const hist=[['home']], hIdx=[0];
+
+  body.innerHTML=`
+    <div class="browser-wrap">
+      <div class="browser-tabs" id="btabbar-${id}"></div>
+      <div class="browser-bar">
+        <button class="browser-nav-btn" id="bback-${id}" title="Back">←</button>
+        <button class="browser-nav-btn" id="bfwd-${id}"  title="Forward">→</button>
+        <button class="browser-nav-btn" id="bref-${id}"  title="Reload">↻</button>
+        <input  class="browser-url" id="burl-${id}" placeholder="Search or enter URL..." autocomplete="off">
+        <button class="browser-nav-btn" style="width:auto;padding:0 10px;font-size:.65rem;" onclick="bGo_${id}()" title="Go">Go</button>
+        <button class="browser-nav-btn" onclick="bNewTab_${id}()" title="New tab">+</button>
+      </div>
+      <div style="height:2px;background:transparent;position:relative;flex-shrink:0;" id="bloadbar-${id}"><div id="bloadfill-${id}" style="height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .3s;"></div></div>
+      <div class="browser-iframe-wrap" id="bframes-${id}" style="flex:1;position:relative;overflow:hidden;"></div>
+    </div>`;
+
+  function renderTabBar(){
+    const bar=document.getElementById(`btabbar-${id}`);
+    bar.innerHTML='';
+    btabs.forEach((t,i)=>{
+      const tab=document.createElement('div');
+      tab.className='browser-tab'+(i===bActive?' active':'');
+      const label=t.title.length>18?t.title.slice(0,18)+'…':t.title;
+      tab.innerHTML=`<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${label}</span><span class="btab-close" onclick="bCloseTab_${id}(${i},event)">×</span>`;
+      tab.onclick=()=>{btabs[bActive]; bActive=i; renderTabBar(); showActiveFrame(); updateURLBar();};
+      bar.appendChild(tab);
+    });
+  }
+
+  function showActiveFrame(){
+    const t=btabs[bActive];
+    // Hide all frames
+    document.querySelectorAll(`#bframes-${id} > *`).forEach(el=>el.style.display='none');
+    if(t.url==='home'){
+      let hEl=document.getElementById(`bhome-${id}-${bActive}`);
+      if(!hEl){hEl=buildHomePage(id,bActive);document.getElementById(`bframes-${id}`).appendChild(hEl);}
+      hEl.style.display='flex';
+    } else {
+      let fr=document.getElementById(`bframe-${id}-${bActive}`);
+      if(!fr){fr=document.createElement('iframe');fr.id=`bframe-${id}-${bActive}`;fr.style.cssText='width:100%;height:100%;border:none;';fr.setAttribute('sandbox','allow-scripts allow-same-origin allow-forms allow-popups');fr.onload=()=>bLoadDone(id);document.getElementById(`bframes-${id}`).appendChild(fr);}
+      fr.style.display='block';
+      if(fr.src!==t.url&&t.url!=='home') fr.src=t.url;
+    }
+  }
+
+  function buildHomePage(id, tabIdx){
+    const el=document.createElement('div');
+    el.id=`bhome-${id}-${tabIdx}`;
+    el.className='browser-home';
+    el.innerHTML=`
+      <div style="text-align:center;padding:10px 0;">
+        <div style="font-family:'Orbitron',sans-serif;font-size:1.4rem;color:var(--sy);margin-bottom:4px;">🌐 PyFox</div>
+        <div style="font-size:.65rem;color:var(--muted);">Browser — powered by iframes and hope</div>
+      </div>
+      <div class="home-search">
+        <input id="hsearch-${id}-${tabIdx}" placeholder="Search Google or enter a URL..." style="flex:1;background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:8px 16px;font-family:'JetBrains Mono',monospace;font-size:.75rem;color:var(--text);outline:none;">
+        <button onclick="bSearchGo_${id}(document.getElementById('hsearch-${id}-${tabIdx}').value)" style="background:var(--accent);border:none;border-radius:20px;padding:8px 18px;color:#fff;font-family:'JetBrains Mono',monospace;font-size:.75rem;cursor:pointer;">Search</button>
+      </div>
+      <div style="font-size:.62rem;color:var(--muted);margin-bottom:4px;">Bookmarks</div>
+      <div class="home-bookmarks">
+        ${[
+          {icon:'🔍',name:'Google',url:'https://www.google.com'},
+          {icon:'🐍',name:'Python.org',url:'https://www.python.org'},
+          {icon:'💻',name:'GitHub',url:'https://github.com'},
+          {icon:'📖',name:'Wikipedia',url:'https://www.wikipedia.org'},
+          {icon:'📦',name:'PyPI',url:'https://pypi.org'},
+          {icon:'🎬',name:'YouTube',url:'https://www.youtube.com'},
+          {icon:'❓',name:'Stack Overflow',url:'https://stackoverflow.com'},
+          {icon:'📰',name:'Hacker News',url:'https://news.ycombinator.com'},
+          {icon:'🌤',name:'Weather',url:'https://wttr.in/?style=v3'},
+        ].map(b=>`<div class="bookmark-card" onclick="bNavigate_${id}('${b.url}')"><div class="bm-icon">${b.icon}</div>${b.name}</div>`).join('')}
+      </div>
+      <div class="settings-info">⚠️ Some sites block iframes (X-Frame-Options). If a site doesn't load, it's blocking embedding — not a PyOS bug!</div>`;
+    return el;
+  }
+
+  function updateURLBar(){const t=btabs[bActive];document.getElementById(`burl-${id}`).value=t.url==='home'?'':t.url;}
+
+  function bNavigate(url, pushHist=true){
+    url=url.trim();
+    if(!url){btabs[bActive].url='home';btabs[bActive].title='🏠 New Tab';renderTabBar();showActiveFrame();updateURLBar();return;}
+    // Add protocol if missing
+    if(!/^https?:\/\//i.test(url)&&!url.startsWith('http')){
+      if(url.includes('.')||url.includes('localhost'))url='https://'+url;
+      else url='https://www.google.com/search?q='+encodeURIComponent(url);
+    }
+    bLoadStart(id);
+    btabs[bActive].url=url;
+    btabs[bActive].title='Loading…';
+    renderTabBar(); updateURLBar(); showActiveFrame();
+    // Try to update title after load
+    const fr=document.getElementById(`bframe-${id}-${bActive}`);
+    if(fr){fr.src=url;}
+    setTimeout(()=>bTryGetTitle(id,bActive),2000);
+  }
+
+  function bTryGetTitle(id, tabIdx){
+    try{const fr=document.getElementById(`bframe-${id}-${tabIdx}`);if(fr&&fr.contentDocument){const t=fr.contentDocument.title||btabs[tabIdx].url;btabs[tabIdx].title=t.slice(0,30)||btabs[tabIdx].url;renderTabBar();}}catch{btabs[tabIdx].title=btabs[tabIdx].url.replace(/^https?:\/\//,'').split('/')[0];renderTabBar();}
+  }
+
+  document.getElementById(`burl-${id}`).addEventListener('keydown',e=>{if(e.key==='Enter')bNavigate(e.target.value);});
+  document.getElementById(`bback-${id}`).onclick=()=>{const h=hist[bActive];const hi=hIdx[bActive];if(hi>0){hIdx[bActive]--;bNavigate(h[hIdx[bActive]],false);}};
+  document.getElementById(`bfwd-${id}`).onclick=()=>{const h=hist[bActive];const hi=hIdx[bActive];if(hi<h.length-1){hIdx[bActive]++;bNavigate(h[hIdx[bActive]],false);}};
+  document.getElementById(`bref-${id}`).onclick=()=>{const t=btabs[bActive];if(t.url!=='home'){bLoadStart(id);const fr=document.getElementById(`bframe-${id}-${bActive}`);if(fr)fr.src=fr.src;}};
+
+  window[`bGo_${id}`]=()=>bNavigate(document.getElementById(`burl-${id}`).value);
+  window[`bNewTab_${id}`]=()=>{btabs.push({url:'home',title:'🏠 New Tab',frameId:null});bActive=btabs.length-1;hist.push(['home']);hIdx.push(0);renderTabBar();showActiveFrame();updateURLBar();};
+  window[`bCloseTab_${id}`]=(i,e)=>{e.stopPropagation();if(btabs.length===1){btabs[0]={url:'home',title:'🏠 New Tab'};showActiveFrame();}else{btabs.splice(i,1);hist.splice(i,1);hIdx.splice(i,1);if(bActive>=btabs.length)bActive=btabs.length-1;renderTabBar();showActiveFrame();updateURLBar();}};
+  window[`bNavigate_${id}`]=bNavigate;
+  window[`bSearchGo_${id}`]=(q)=>{if(q)bNavigate(q.includes('.')||q.startsWith('http')?q:'https://www.google.com/search?q='+encodeURIComponent(q));};
+
+  renderTabBar();
+  showActiveFrame();
+}
+
+function bLoadStart(id){const b=document.getElementById(`bloadfill-${id}`);if(b){b.style.width='0%';setTimeout(()=>b.style.width='70%',50);}}
+function bLoadDone(id){const b=document.getElementById(`bloadfill-${id}`);if(b){b.style.width='100%';setTimeout(()=>b.style.width='0%',400);}}
+
+// ═══════════════════════════════════════════════════════
+//  MAIL
+// ═══════════════════════════════════════════════════════
+const EMAILS_DATA=[
+  {from:'GIL <gil@python.org>',subject:'Re: Request to disable me',body:'Dear snake,\n\nI have reviewed your petition. The answer is still no.\n\nRegards,\nThe Global Interpreter Lock',time:'09:41',unread:true,folder:'inbox'},
+  {from:'pip <pip@python.org>',subject:'16 packages need updating',body:'You have 16 outdated packages.\nmeme 3.0.0 → 3.14.0\nvibes 100.0 → 420.0\n\nYou will ignore this email.\n\n—pip',time:'08:15',unread:true,folder:'inbox'},
+  {from:'Guido <guido@python.org>',subject:'Proud of you',body:'Dear snake,\n\nI heard you made an OS in Python.\nThis was not the intended use.\nI\'m weirdly proud of you.\n\nBest,\nGuido',time:'Yesterday',unread:false,folder:'inbox'},
+  {from:'Linus <torvalds@kernel.org>',subject:'What have you done',body:'This is not Linux.\nA Python process is not a kernel.\nAnd yet here we are.\n\n—Linus',time:'Mon',unread:false,folder:'inbox'},
+  {from:'Me <snake@pyos.local>',subject:'TODO',body:'TO DO:\n- Fix GIL (impossible)\n- Add real networking\n- Profit',time:'Sat',unread:false,folder:'sent'},
+];
+const userEmails = [...EMAILS_DATA];
+
+function buildMail(body, id) {
+  let folder='inbox', activeIdx=null;
+  body.innerHTML=`
+    <div class="mail-wrap" style="position:relative;">
+      <div class="mail-sidebar">
+        <div style="font-size:.6rem;color:var(--muted);margin-bottom:8px;">📧 snake@pyos.local</div>
+        <div class="mail-folder active" id="mfInbox-${id}" onclick="mfSwitch_${id}('inbox',this)">📥 Inbox <span class="mail-badge" id="mbadge-${id}"></span></div>
+        <div class="mail-folder" id="mfSent-${id}" onclick="mfSwitch_${id}('sent',this)">📤 Sent</div>
+        <div class="mail-folder" id="mfTrash-${id}" onclick="mfSwitch_${id}('trash',this)">🗑️ Trash</div>
+        <div style="margin-top:auto;padding-top:8px;">
+          <button class="fm-btn" style="width:100%" onclick="mCompose_${id}()">✉️ Compose</button>
+        </div>
+      </div>
+      <div class="mail-list" id="mlist-${id}"></div>
+      <div class="mail-view" id="mview-${id}">
+        <div style="color:var(--muted);font-size:.7rem;margin-top:40px;text-align:center;">Select a message</div>
+      </div>
+      <div class="mail-compose" id="mcompose-${id}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:.7rem;font-weight:700;">New Message <button class="fm-btn" onclick="document.getElementById('mcompose-${id}').classList.remove('open')">×</button></div>
+        <input class="mail-compose-input" placeholder="To:" id="mto-${id}">
+        <input class="mail-compose-input" placeholder="Subject:" id="msub-${id}">
+        <textarea class="mail-compose-ta" placeholder="Message..." id="mbody-${id}"></textarea>
+        <div style="display:flex;gap:8px;">
+          <button class="fm-btn" onclick="mSend_${id}()" style="background:var(--accent);color:#fff;border-color:var(--accent);">📤 Send</button>
+          <button class="fm-btn" onclick="document.getElementById('mcompose-${id}').classList.remove('open')">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+
+  function updateBadge(){const n=userEmails.filter(e=>e.folder==='inbox'&&e.unread).length;const b=document.getElementById(`mbadge-${id}`);if(b)b.textContent=n||'';}
+  function renderList(){
+    const list=document.getElementById(`mlist-${id}`);
+    list.innerHTML='';
+    const emails=userEmails.filter(e=>e.folder===folder);
+    if(!emails.length){list.innerHTML='<div style="padding:14px;color:var(--muted);font-size:.68rem;">No messages</div>';return;}
+    emails.forEach((em,i)=>{
+      const item=document.createElement('div');
+      item.className='mail-item'+(em.unread?' unread':'')+(activeIdx===i?' active-mail':'');
+      item.innerHTML=`<div class="mi-time">${em.time}</div><div class="mi-from">${em.from.split('<')[0].trim()}</div><div class="mi-subject">${em.subject}</div><div class="mi-preview">${em.body.split('\n')[0]}</div>`;
+      item.onclick=()=>{
+        document.querySelectorAll(`#mlist-${id} .mail-item`).forEach(el=>el.classList.remove('active-mail'));
+        item.classList.add('active-mail'); em.unread=false; item.classList.remove('unread'); updateBadge();
+        document.getElementById(`mview-${id}`).innerHTML=`
+          <div style="color:var(--muted);font-size:.68rem;margin-bottom:4px;">From: ${em.from}</div>
+          <div style="color:var(--muted);font-size:.65rem;margin-bottom:12px;">Time: ${em.time}</div>
+          <div style="font-size:.85rem;font-weight:700;margin-bottom:12px;">${em.subject}</div>
+          <div style="white-space:pre-line;font-size:.72rem;line-height:1.6;">${em.body}</div>
+          <div style="margin-top:16px;display:flex;gap:8px;">
+            <button class="fm-btn" data-eidx="${userEmails.indexOf(em)}" onclick="mDoReply_${id}(this.dataset.eidx)">↩ Reply</button>
+            <button class="fm-btn" onclick="mDelete_${id}(${userEmails.indexOf(em)})">🗑️ Delete</button>
+          </div>`;
+      };
+      list.appendChild(item);
+    });
+    updateBadge();
+  }
+
+  window[`mfSwitch_${id}`]=(f,el)=>{folder=f;activeIdx=null;document.querySelectorAll(`#mfInbox-${id},#mfSent-${id},#mfTrash-${id}`).forEach(e=>e.classList.remove('active'));el.classList.add('active');renderList();document.getElementById(`mview-${id}`).innerHTML='<div style="color:var(--muted);font-size:.7rem;margin-top:40px;text-align:center;">Select a message</div>';};
+  window[`mCompose_${id}`]=()=>document.getElementById(`mcompose-${id}`).classList.add('open');
+  window[`mSend_${id}`]=()=>{
+    const to=document.getElementById(`mto-${id}`).value;
+    const sub=document.getElementById(`msub-${id}`).value||'(no subject)';
+    const msg=document.getElementById(`mbody-${id}`).value;
+    if(!to){notify('Enter a recipient!','✉️','warn');return;}
+    userEmails.push({from:'Me <snake@pyos.local>',subject:sub,body:msg,time:'Just now',unread:false,folder:'sent'});
+    notify(`Message sent to ${to}!`,'📤 PyMail','success');
+    document.getElementById(`mcompose-${id}`).classList.remove('open');
+    document.getElementById(`mto-${id}`).value=''; document.getElementById(`msub-${id}`).value=''; document.getElementById(`mbody-${id}`).value='';
+    if(folder==='sent')renderList();
+  };
+  window[`mReply_${id}`]=(from)=>{document.getElementById(`mcompose-${id}`).classList.add('open');document.getElementById(`mto-${id}`).value=from;};
+  window[`mDoReply_${id}`]=(idx)=>{const em=userEmails[parseInt(idx)];if(em)window[`mReply_${id}`](em.from);};
+  window[`mDelete_${id}`]=(i)=>{userEmails[i].folder='trash';renderList();document.getElementById(`mview-${id}`).innerHTML='<div style="color:var(--muted);font-size:.7rem;margin-top:40px;text-align:center;">Deleted</div>';notify('Message moved to trash','🗑️','warn');};
+  renderList();
+}
+
+// ═══════════════════════════════════════════════════════
+//  PYTUNES
+// ═══════════════════════════════════════════════════════
+const TRACKS=[
+  {title:'GIL Theme Song',artist:'The Interpreters',dur:194,emoji:'🔒'},
+  {title:'pip install Heartbreak',artist:'Dependency Hell',dur:260,emoji:'💔'},
+  {title:'Indentation Blues',artist:'Tab vs Space',dur:171,emoji:'🎸'},
+  {title:'Async/Await (Sad)',artist:'asyncio',dur:300,emoji:'⏳'},
+  {title:'snake_case Romance',artist:'PEP 8',dur:213,emoji:'🐍'},
+  {title:'Zen of Python Acoustic',artist:'Tim Peters',dur:80,emoji:'☯️'},
+  {title:'404: Feature Not Found',artist:'The Edge Cases',dur:406,emoji:'🚫'},
+];
+const musicInstances={};
+function buildMusic(body,id){
+  const M={playing:false,track:0,pos:0,iv:null,vol:100,repeat:false,shuffle:false};
+  musicInstances[id]=M;
+  body.innerHTML=`
+    <div class="music-wrap">
+      <div class="music-album" id="malb-${id}">${TRACKS[0].emoji}</div>
+      <div class="music-title" id="mtit-${id}">${TRACKS[0].title}</div>
+      <div class="music-artist" id="mart-${id}">${TRACKS[0].artist}</div>
+      <div class="music-visualizer" id="mvis-${id}"></div>
+      <div class="music-progress-wrap" id="mpw-${id}">
+        <div class="music-progress" id="mpr-${id}" style="width:0%"></div>
+      </div>
+      <div class="music-times"><span id="mcur-${id}">0:00</span><span id="mdur-${id}">${fmt(TRACKS[0].dur)}</span></div>
+      <div class="music-controls">
+        <button class="music-btn" onclick="mPrev_${id}()">⏮</button>
+        <button class="music-btn" id="mshuffle-${id}" onclick="mShuffle_${id}()" title="Shuffle">🔀</button>
+        <button class="music-btn play-btn" id="mplay-${id}" onclick="mToggle_${id}()">▶</button>
+        <button class="music-btn" id="mrepeat-${id}" onclick="mRepeat_${id}()" title="Repeat">🔁</button>
+        <button class="music-btn" onclick="mNext_${id}()">⏭</button>
+      </div>
+      <div class="music-vol">
+        🔊 <input type="range" min="0" max="100" value="100" oninput="mVol_${id}(this.value)" style="accent-color:var(--accent);width:80px;">
+        <span id="mvol-${id}">100%</span>
+      </div>
+      <div class="music-playlist">
+        <div style="font-size:.58rem;color:var(--muted);padding:6px 4px;">PLAYLIST</div>
+        <div id="mpl-${id}"></div>
+      </div>
+    </div>`;
+  function fmt(s){return`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}
+  const vis=document.getElementById(`mvis-${id}`);
+  for(let i=0;i<10;i++){const b=document.createElement('div');b.className='vis-bar';b.style.cssText=`height:4px;background:${i%2?'var(--accent2)':'var(--accent)'}`;vis.appendChild(b);}
+
+  function loadTrack(){
+    const t=TRACKS[M.track];
+    document.getElementById(`malb-${id}`).textContent=t.emoji;
+    document.getElementById(`mtit-${id}`).textContent=t.title;
+    document.getElementById(`mart-${id}`).textContent=t.artist;
+    document.getElementById(`mdur-${id}`).textContent=fmt(t.dur);
+    M.pos=0; renderPl();
+  }
+  function renderPl(){
+    const pl=document.getElementById(`mpl-${id}`);
+    pl.innerHTML='';
+    TRACKS.forEach((t,i)=>{
+      const item=document.createElement('div');
+      item.className='playlist-item'+(i===M.track?' playing-now':'');
+      item.innerHTML=`<span style="color:var(--muted);width:16px;">${i===M.track&&M.playing?'▶':i+1}</span><div style="flex:1;overflow:hidden;"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.emoji} ${t.title}</div><div style="font-size:.58rem;color:var(--muted);">${t.artist}</div></div><span style="color:var(--muted)">${fmt(t.dur)}</span>`;
+      item.onclick=()=>{M.track=i;loadTrack();if(!M.playing)mToggle();};
+      pl.appendChild(item);
+    });
+  }
+  function mToggle(){
+    M.playing=!M.playing;
+    const pb=document.getElementById(`mplay-${id}`);
+    const alb=document.getElementById(`malb-${id}`);
+    if(M.playing){
+      pb.textContent='⏸'; alb.classList.add('playing');
+      M.iv=setInterval(()=>{
+        const t=TRACKS[M.track];
+        M.pos=Math.min(M.pos+1,t.dur);
+        document.getElementById(`mpr-${id}`).style.width=(M.pos/t.dur*100)+'%';
+        document.getElementById(`mcur-${id}`).textContent=fmt(M.pos);
+        vis.querySelectorAll('.vis-bar').forEach(b=>b.style.height=(Math.random()*24+4)+'px');
+        if(M.pos>=t.dur){if(M.repeat)M.pos=0;else{M.track=M.shuffle?Math.floor(Math.random()*TRACKS.length):(M.track+1)%TRACKS.length;loadTrack();}}
+      },1000);
+    } else {
+      pb.textContent='▶'; alb.classList.remove('playing');
+      clearInterval(M.iv); M.iv=null;
+      vis.querySelectorAll('.vis-bar').forEach(b=>b.style.height='4px');
+    }
+    renderPl();
+  }
+  window[`mToggle_${id}`]=mToggle;
+  window[`mNext_${id}`]=()=>{M.track=(M.track+1)%TRACKS.length;loadTrack();if(M.playing){clearInterval(M.iv);M.iv=null;M.playing=false;mToggle();}};
+  window[`mPrev_${id}`]=()=>{M.track=(M.track-1+TRACKS.length)%TRACKS.length;loadTrack();if(M.playing){clearInterval(M.iv);M.iv=null;M.playing=false;mToggle();}};
+  window[`mShuffle_${id}`]=()=>{M.shuffle=!M.shuffle;document.getElementById(`mshuffle-${id}`).style.color=M.shuffle?'var(--accent)':'var(--text)';notify(M.shuffle?'Shuffle ON':'Shuffle OFF','🔀');};
+  window[`mRepeat_${id}`]=()=>{M.repeat=!M.repeat;document.getElementById(`mrepeat-${id}`).style.color=M.repeat?'var(--accent)':'var(--text)';notify(M.repeat?'Repeat ON':'Repeat OFF','🔁');};
+  window[`mVol_${id}`]=(v)=>{M.vol=parseInt(v);document.getElementById(`mvol-${id}`).textContent=v+'%';};
+  document.getElementById(`mpw-${id}`).addEventListener('click',e=>{const r=e.currentTarget.getBoundingClientRect();M.pos=Math.round((e.clientX-r.left)/r.width*TRACKS[M.track].dur);document.getElementById(`mpr-${id}`).style.width=(M.pos/TRACKS[M.track].dur*100)+'%';document.getElementById(`mcur-${id}`).textContent=fmt(M.pos);});
+  loadTrack();
+}
+function cleanMusic(id){const M=musicInstances[id];if(M){clearInterval(M.iv);delete musicInstances[id];}}
+
+// ═══════════════════════════════════════════════════════
+//  PYPAINT
+// ═══════════════════════════════════════════════════════
+function buildPaint(body,id){
+  const COLORS=['#ffffff','#e2e8f0','#94a3b8','#475569','#1e293b','#000000','#ef4444','#f97316','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#06b6d4','#fde68a','#a7f3d0','#fca5a5','#6ee7b7'];
+  let tool='pen', color='#ffffff', size=4, drawing=false, lx=0, ly=0, snap=null;
+  body.innerHTML=`
+    <div class="paint-wrap">
+      <div class="paint-toolbar">
+        <button class="paint-tool-btn active" id="ptp-${id}"   onclick="ptT_${id}('pen')"    title="Pen">✏️</button>
+        <button class="paint-tool-btn"        id="pte-${id}"   onclick="ptT_${id}('eraser')" title="Eraser">🧹</button>
+        <button class="paint-tool-btn"        id="ptl-${id}"   onclick="ptT_${id}('line')"   title="Line">╱</button>
+        <button class="paint-tool-btn"        id="ptr-${id}"   onclick="ptT_${id}('rect')"   title="Rect">▭</button>
+        <button class="paint-tool-btn"        id="ptci-${id}"  onclick="ptT_${id}('circle')" title="Circle">○</button>
+        <div style="width:1px;height:22px;background:var(--border);margin:0 2px;"></div>
+        <div class="paint-colors" id="pclrs-${id}"></div>
+        <div style="width:1px;height:22px;background:var(--border);margin:0 2px;"></div>
+        <div style="display:flex;align-items:center;gap:4px;font-size:.6rem;color:var(--muted);">
+          Size: <input type="range" min="1" max="40" value="4" style="width:60px;accent-color:var(--accent);" id="psz-${id}" oninput="ptSz_${id}(this.value)">
+          <span id="pszv-${id}">4px</span>
+        </div>
+        <button class="fm-btn" onclick="ptClr_${id}()">🗑️ Clear</button>
+        <button class="fm-btn" onclick="ptUndo_${id}()">↩ Undo</button>
+        <button class="fm-btn" onclick="ptSave_${id}()">💾 Save</button>
+      </div>
+      <div class="paint-canvas-wrap" id="pcw-${id}">
+        <canvas id="pcan-${id}" width="800" height="560" style="cursor:crosshair;display:block;"></canvas>
+      </div>
+    </div>`;
+
+  const pal=document.getElementById(`pclrs-${id}`);
+  COLORS.forEach((c,i)=>{
+    const s=document.createElement('div'); s.className='paint-color'+(i===0?' active':''); s.style.background=c; s.title=c;
+    s.onclick=()=>{document.querySelectorAll(`#pclrs-${id} .paint-color`).forEach(p=>p.classList.remove('active'));s.classList.add('active');color=c;};
+    pal.appendChild(s);
+  });
+
+  const canvas=document.getElementById(`pcan-${id}`);
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#1a1a2e'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  const undoStack=[];
+  function saveUndo(){undoStack.push(ctx.getImageData(0,0,canvas.width,canvas.height));if(undoStack.length>20)undoStack.shift();}
+
+  function gp(e){const r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left)*(canvas.width/r.width),y:(e.clientY-r.top)*(canvas.height/r.height)};}
+  canvas.addEventListener('mousedown',e=>{saveUndo();drawing=true;const p=gp(e);lx=p.x;ly=p.y;snap=ctx.getImageData(0,0,canvas.width,canvas.height);ctx.beginPath();ctx.moveTo(p.x,p.y);if(tool==='pen'||tool==='eraser'){ctx.lineTo(p.x+.1,p.y);ctx.strokeStyle=tool==='eraser'?'#1a1a2e':color;ctx.lineWidth=size;ctx.lineCap='round';ctx.stroke();}});
+  canvas.addEventListener('mousemove',e=>{if(!drawing)return;const p=gp(e);ctx.lineWidth=size;ctx.lineCap='round';ctx.lineJoin='round';
+    if(tool==='pen'){ctx.strokeStyle=color;ctx.globalCompositeOperation='source-over';ctx.beginPath();ctx.moveTo(lx,ly);ctx.lineTo(p.x,p.y);ctx.stroke();lx=p.x;ly=p.y;}
+    else if(tool==='eraser'){ctx.globalCompositeOperation='source-over';ctx.strokeStyle='#1a1a2e';ctx.beginPath();ctx.moveTo(lx,ly);ctx.lineTo(p.x,p.y);ctx.stroke();lx=p.x;ly=p.y;}
+    else if(snap){ctx.putImageData(snap,0,0);ctx.strokeStyle=color;ctx.fillStyle=color;ctx.globalCompositeOperation='source-over';
+      if(tool==='line'){ctx.beginPath();ctx.moveTo(lx,ly);ctx.lineTo(p.x,p.y);ctx.stroke();}
+      else if(tool==='rect'){ctx.strokeRect(lx,ly,p.x-lx,p.y-ly);}
+      else if(tool==='circle'){const rx=Math.abs(p.x-lx)/2,ry=Math.abs(p.y-ly)/2,cx=Math.min(lx,p.x)+rx,cy=Math.min(ly,p.y)+ry;ctx.beginPath();ctx.ellipse(cx,cy,rx,ry,0,0,Math.PI*2);ctx.stroke();}}});
+  canvas.addEventListener('mouseup',()=>{drawing=false;ctx.globalCompositeOperation='source-over';snap=null;});
+  canvas.addEventListener('mouseleave',()=>{drawing=false;ctx.globalCompositeOperation='source-over';snap=null;});
+
+  window[`ptT_${id}`]=t=>{
+    tool=t;
+    const idMap={pen:'ptp',eraser:'pte',line:'ptl',rect:'ptr',circle:'ptci'};
+    Object.values(idMap).forEach(bid=>document.getElementById(`${bid}-${id}`)?.classList.remove('active'));
+    document.getElementById(`${idMap[t]}-${id}`)?.classList.add('active');
+  };
+  window[`ptSz_${id}`]=s=>{size=parseInt(s);document.getElementById(`pszv-${id}`).textContent=s+'px';};
+  window[`ptClr_${id}`]=()=>{ctx.fillStyle='#1a1a2e';ctx.fillRect(0,0,canvas.width,canvas.height);};
+  window[`ptUndo_${id}`]=()=>{if(undoStack.length)ctx.putImageData(undoStack.pop(),0,0);else notify('Nothing to undo','↩','warn');};
+  window[`ptSave_${id}`]=()=>{const a=document.createElement('a');a.download='pyos-art.png';a.href=canvas.toDataURL();a.click();notify('Saved as pyos-art.png!','💾 PyPaint','success');};
+}
+
+// ═══════════════════════════════════════════════════════
+//  TASK MANAGER
+// ═══════════════════════════════════════════════════════
+const tmIntervals={};
+function buildTaskMgr(body,id){
+  const procs=[
+    {name:'kernel_thread',pid:1,cpu:.1,mem:12,status:'sleeping',user:'root'},
+    {name:'pythonit',pid:2,cpu:3.2,mem:18,status:'running',user:'root'},
+    {name:'python3 (GIL)',pid:3,cpu:45.1,mem:38,status:'running',user:'snake'},
+    {name:'pywayland',pid:4,cpu:8.0,mem:22,status:'running',user:'root'},
+    {name:'snake_daemon',pid:5,cpu:2.1,mem:5,status:'sleeping',user:'snake'},
+    {name:'pip_watchdog',pid:6,cpu:0,mem:3,status:'zombie',user:'snake'},
+    {name:'meme_loader',pid:7,cpu:99.9,mem:60,status:'running',user:'snake'},
+    {name:'pysh',pid:8,cpu:1.2,mem:8,status:'running',user:'snake'},
+    {name:'GIL_master',pid:9,cpu:12.3,mem:7,status:'running',user:'root'},
+    {name:'asyncio_loop',pid:10,cpu:.5,mem:4,status:'sleeping',user:'snake'},
+  ];
+  let tab='procs', sortKey='cpu', sortDir=-1;
+  body.innerHTML=`
+    <div class="tm-wrap">
+      <div class="tm-tabs">
+        <div class="tm-tab active" id="tmt-procs-${id}" onclick="tmTab_${id}('procs',this)">Processes</div>
+        <div class="tm-tab"        id="tmt-perf-${id}"  onclick="tmTab_${id}('perf',this)">Performance</div>
+        <div class="tm-tab"        id="tmt-users-${id}" onclick="tmTab_${id}('users',this)">Users</div>
+      </div>
+      <div class="tm-body">
+        <div id="tm-procs-${id}">
+          <table class="tm-table">
+            <thead><tr>
+              <th onclick="tmSort_${id}('name')">Name</th><th onclick="tmSort_${id}('pid')">PID</th>
+              <th onclick="tmSort_${id}('cpu')">CPU ↕</th><th onclick="tmSort_${id}('mem')">MEM</th>
+              <th>Status</th><th>User</th>
+            </tr></thead>
+            <tbody id="tmbody-${id}"></tbody>
+          </table>
+        </div>
+        <div id="tm-perf-${id}" style="display:none">
+          <div class="perf-grid">
+            <div class="perf-card"><div class="perf-label">CPU</div><div class="perf-val" id="pcpu-${id}">0%</div><div class="perf-mini-bar"><div class="perf-mini-fill" id="pcpub-${id}" style="background:var(--accent);width:0%"></div></div><div class="perf-history" id="pcpuh-${id}"></div></div>
+            <div class="perf-card"><div class="perf-label">Memory</div><div class="perf-val" id="pmem-${id}" style="color:var(--green)">0%</div><div class="perf-mini-bar"><div class="perf-mini-fill" id="pmemb-${id}" style="background:var(--green);width:0%"></div></div></div>
+            <div class="perf-card"><div class="perf-label">GIL Status</div><div class="perf-val" style="color:var(--red);font-size:.9rem;">🔒 LOCKED</div><div style="font-size:.58rem;color:var(--muted);margin-top:4px;">Since 1992. Non-negotiable.</div></div>
+            <div class="perf-card"><div class="perf-label">Meme Level</div><div class="perf-val" style="color:var(--yellow)">∞</div><div class="perf-mini-bar"><div class="perf-mini-fill" style="background:var(--yellow);width:100%"></div></div></div>
+          </div>
+          <div style="margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:.63rem;color:var(--muted);">
+            Boot: 0.374s · Uptime: <span id="tuptime-${id}">0s</span> · Threads: 1 (GIL)
+          </div>
+        </div>
+        <div id="tm-users-${id}" style="display:none">
+          <table class="tm-table"><thead><tr><th>User</th><th>Sessions</th><th>CPU</th><th>MEM</th></tr></thead>
+          <tbody><tr><td>snake</td><td>1</td><td>48%</td><td>65MB</td></tr><tr><td>root</td><td>1</td><td>16%</td><td>37MB</td></tr></tbody></table>
+        </div>
+      </div>
+    </div>`;
+
+  const t0=Date.now();
+  window[`tmTab_${id}`]=(t,el)=>{
+    tab=t;
+    ['procs','perf','users'].forEach(n=>{
+      const el2=document.getElementById(`tm-${n}-${id}`);
+      if(el2) el2.style.display=n===t?'block':'none';
+      document.getElementById(`tmt-${n}-${id}`)?.classList.toggle('active',n===t);
+    });
+  };
+  window[`tmSort_${id}`]=(k)=>{sortKey=k;sortDir*=-1;};
+
+  tmIntervals[id]=setInterval(()=>{
+    if(!document.getElementById(`tmbody-${id}`)) return;
+    procs.forEach(p=>{p.cpu=Math.max(0,Math.min(99.9,p.cpu+(Math.random()-.48)*12));});
+    const sorted=[...procs].sort((a,b)=>(a[sortKey]>b[sortKey]?1:-1)*sortDir);
+    const tb=document.getElementById(`tmbody-${id}`); tb.innerHTML='';
+    sorted.forEach(p=>{
+      const c=p.cpu, col=c>80?'var(--red)':c>50?'var(--yellow)':'var(--green)';
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${p.name}</td><td style="color:var(--muted)">${p.pid}</td><td><div class="tm-bar-wrap"><div class="tm-bar-fill" style="width:${c}%;background:${col}"></div></div>${c.toFixed(1)}%</td><td style="color:var(--muted)">${p.mem}MB</td><td style="color:${p.status==='running'?'var(--green)':p.status==='zombie'?'var(--red)':'var(--muted)'}">${p.status}</td><td style="color:var(--muted)">${p.user}</td>`;
+      tr.addEventListener('contextmenu',e=>{e.preventDefault();e.stopPropagation();showCtxMenu(e.clientX,e.clientY,[
+        {label:`🔍 ${p.name} (PID ${p.pid})`,action:()=>notify(`CPU: ${p.cpu.toFixed(1)}%  MEM: ${p.mem}MB  Status: ${p.status}`,'🔍')},
+        {label:'⛔ Kill',action:()=>{if(p.pid<=2)notify('Cannot kill init!','⛔','error');else{p.status='zombie';p.cpu=0;notify(`Killed ${p.name}`,'⛔','warn');}},danger:true},
+      ]);});
+      tb.appendChild(tr);
+    });
+    const cpuEl=document.getElementById(`pcpu-${id}`);
+    if(cpuEl){cpuEl.textContent=fakeCpu.toFixed(0)+'%';document.getElementById(`pcpub-${id}`).style.width=fakeCpu+'%';}
+    const memEl=document.getElementById(`pmem-${id}`);
+    if(memEl){memEl.textContent=fakeMem.toFixed(0)+'%';document.getElementById(`pmemb-${id}`).style.width=fakeMem+'%';}
+    const histEl=document.getElementById(`pcpuh-${id}`);
+    if(histEl){histEl.innerHTML='';cpuHist.forEach(v=>{const b=document.createElement('div');b.style.cssText=`flex:1;background:var(--accent);border-radius:1px 1px 0 0;opacity:.6;height:${v/100*36}px;`;histEl.appendChild(b);});}
+    const upEl=document.getElementById(`tuptime-${id}`);
+    if(upEl){const s=Math.floor((Date.now()-t0)/1000);upEl.textContent=s<60?s+'s':Math.floor(s/60)+'m '+s%60+'s';}
+  },1500);
+}
+function cleanTM(id){clearInterval(tmIntervals[id]);delete tmIntervals[id];}
+
+// ═══════════════════════════════════════════════════════
+//  CALCULATOR
+// ═══════════════════════════════════════════════════════
+function buildCalc(body,id){
+  let expr='',justEvaled=false,mode='std';
+  body.innerHTML=`
+    <div class="calc-wrap">
+      <div class="calc-mode-tabs">
+        <div class="calc-mode-tab active" id="cmt-std-${id}" onclick="cMode_${id}('std',this)">Standard</div>
+        <div class="calc-mode-tab" id="cmt-sci-${id}" onclick="cMode_${id}('sci',this)">Scientific</div>
+        <div class="calc-mode-tab" id="cmt-prg-${id}" onclick="cMode_${id}('prg',this)">Programmer</div>
+      </div>
+      <div class="calc-display">
+        <div class="calc-hist" id="chist-${id}"></div>
+        <div class="calc-expr" id="cexpr-${id}"></div>
+        <div class="calc-val" id="cval-${id}">0</div>
+      </div>
+      <div id="cgrid-${id}"></div>
+    </div>`;
+
+  const grids={
+    std:[['%','CE','C','⌫'],['1/x','x²','√x','÷'],['7','8','9','×'],['4','5','6','−'],['1','2','3','+'],['±','0','.','=']],
+    sci:[['sin','cos','tan','π'],['log','ln','eˣ','√x'],['7','8','9','÷'],['4','5','6','×'],['1','2','3','−'],['0','.','=','+']],
+    prg:[['AND','OR','XOR','NOT'],['<<','>>','0x','0b'],['7','8','9','÷'],['4','5','6','×'],['1','2','3','−'],['0','.','=','+']],
+  };
+
+  function renderGrid(){
+    const g=document.getElementById(`cgrid-${id}`);
+    g.className='calc-grid';
+    g.innerHTML='';
+    grids[mode].forEach(row=>row.forEach(k=>{
+      const cls=['÷','×','−','+','='].includes(k)?(k==='='?'eq':'op'):['C','CE','⌫'].includes(k)?'clr':['sin','cos','tan','log','ln','AND','OR','XOR','NOT','<<','>>'].includes(k)?'op':'';
+      const btn=document.createElement('button');
+      btn.className=`c-btn ${cls}`;
+      btn.textContent=k;
+      btn.onclick=()=>cp(k);
+      g.appendChild(btn);
+    }));
+  }
+
+  const hist=document.getElementById(`chist-${id}`);
+  const exprEl=document.getElementById(`cexpr-${id}`);
+  const valEl=document.getElementById(`cval-${id}`);
+
+  function cp(k){
+    if(justEvaled&&!['+','-','×','÷','=','C','CE','⌫','%'].includes(k)){expr='';justEvaled=false;}
+    if(k==='C'){expr='';valEl.textContent='0';exprEl.textContent='';hist.textContent='';justEvaled=false;return;}
+    if(k==='CE'){expr=expr.replace(/[\d.]+$/,'')||'';} 
+    else if(k==='⌫'){if(justEvaled){expr='';justEvaled=false;}else expr=expr.slice(0,-1);}
+    else if(k==='='){
+      if(!expr)return;
+      const raw=expr.replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-');
+      hist.textContent=expr+' =';
+      try{let r=String(Function('"use strict";return('+raw+')')());if(r==='Infinity')r='Cannot ÷ 0';expr=r;}
+      catch{expr='Error';}
+      valEl.textContent=expr;exprEl.textContent='';justEvaled=true;return;
+    }
+    else if(k==='x²'){expr=`(${expr||'0'})**2`;}
+    else if(k==='√x'){expr=`Math.sqrt(${expr||'0'})`;}
+    else if(k==='1/x'){expr=`1/(${expr||'1'})`;}
+    else if(k==='±'){expr=expr.startsWith('-')?expr.slice(1):'-'+expr;}
+    else if(k==='π'){expr+='3.14159265358979';}
+    else if(k==='sin'){expr=`Math.sin(${expr||'0'})`;}
+    else if(k==='cos'){expr=`Math.cos(${expr||'0'})`;}
+    else if(k==='tan'){expr=`Math.tan(${expr||'0'})`;}
+    else if(k==='log'){expr=`Math.log10(${expr||'0'})`;}
+    else if(k==='ln'){expr=`Math.log(${expr||'0'})`;}
+    else if(k==='eˣ'){expr=`Math.exp(${expr||'0'})`;}
+    else if(k==='0x'){expr+='0x';}
+    else if(k==='0b'){expr+='0b';}
+    else if(k==='AND'){expr+=' & ';}
+    else if(k==='OR'){expr+=' | ';}
+    else if(k==='XOR'){expr+=' ^ ';}
+    else if(k==='NOT'){expr=`~(${expr||'0'})`;}
+    else if(k==='<<'){expr+='<<';}
+    else if(k==='>>'){expr+='>>';}
+    else if(k==='%'){expr+='%';}
+    else{expr+=({'÷':'÷','×':'×','−':'−','+':'+'}[k]||k);justEvaled=false;}
+    exprEl.textContent=expr;
+    try{const p=Function('"use strict";return('+expr.replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-')+')')();if(p!==undefined&&!isNaN(p)&&isFinite(p))valEl.textContent=String(p);}
+    catch{valEl.textContent=expr||'0';}
+  }
+
+  window[`cMode_${id}`]=(m,el)=>{mode=m;['std','sci','prg'].forEach(n=>document.getElementById(`cmt-${n}-${id}`)?.classList.toggle('active',n===m));renderGrid();};
+  renderGrid();
+}
+
+// ═══════════════════════════════════════════════════════
+//  SNAKE
+// ═══════════════════════════════════════════════════════
+const snakeInst={};
+function buildSnake(body,id){
+  const SIZE=20,CELL=14;
+  const S={iv:null,running:false,snake:[],dir:{x:1,y:0},food:{x:5,y:5},score:0,hi:0,speed:130,keyH:null};
+  snakeInst[id]=S;
+  body.innerHTML=`
+    <div class="snake-wrap">
+      <div class="snake-info">
+        <span>Score: <b id="ssc-${id}">0</b></span>
+        <span>Best: <b id="shi-${id}">0</b></span>
+        <span>Speed: <select id="sspd-${id}" onchange="sSpdChg_${id}(this.value)">
+          <option value="200">🐢 Slow</option><option value="130" selected>🐍 Normal</option>
+          <option value="80">⚡ Fast</option><option value="40">💀 Insane</option>
+        </select></span>
+      </div>
+      <canvas id="sc-${id}" width="${SIZE*CELL}" height="${SIZE*CELL}" style="border:1px solid var(--border);border-radius:4px;"></canvas>
+      <div style="font-size:.58rem;color:var(--muted2);">Arrow keys / WASD — R restart — P pause</div>
+      <div style="display:flex;gap:8px;">
+        <button class="fm-btn" id="ssbtn-${id}" onclick="sToggle_${id}()">▶ Start</button>
+        <button class="fm-btn" onclick="sReset_${id}()">↺ Reset</button>
+      </div>
+    </div>`;
+
+  const canvas=document.getElementById(`sc-${id}`);
+  const ctx=canvas.getContext('2d');
+
+  function draw(){
+    ctx.fillStyle='#000e1a';ctx.fillRect(0,0,SIZE*CELL,SIZE*CELL);
+    ctx.strokeStyle='rgba(30,58,95,.2)';ctx.lineWidth=.5;
+    for(let i=0;i<=SIZE;i++){ctx.beginPath();ctx.moveTo(i*CELL,0);ctx.lineTo(i*CELL,SIZE*CELL);ctx.stroke();ctx.beginPath();ctx.moveTo(0,i*CELL);ctx.lineTo(SIZE*CELL,i*CELL);ctx.stroke();}
+    ctx.fillStyle='#ef4444';ctx.shadowColor='#ef4444';ctx.shadowBlur=12;
+    ctx.beginPath();ctx.arc(S.food.x*CELL+CELL/2,S.food.y*CELL+CELL/2,CELL/2-1,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
+    S.snake.forEach((seg,i)=>{
+      ctx.fillStyle=i===0?'#fde68a':`hsl(${215-i*2},80%,${60-i}%)`;
+      ctx.shadowColor=i===0?'#fde68a':'transparent';ctx.shadowBlur=i===0?10:0;
+      ctx.beginPath();ctx.roundRect(seg.x*CELL+1,seg.y*CELL+1,CELL-2,CELL-2,i===0?4:3);ctx.fill();
+    });
+    ctx.shadowBlur=0;
+  }
+
+  function spawnFood(){let p;do{p={x:Math.floor(Math.random()*SIZE),y:Math.floor(Math.random()*SIZE)};}while(S.snake.some(s=>s.x===p.x&&s.y===p.y));S.food=p;}
+
+  function tick(){
+    const h={x:S.snake[0].x+S.dir.x,y:S.snake[0].y+S.dir.y};
+    if(h.x<0||h.x>=SIZE||h.y<0||h.y>=SIZE||S.snake.some(s=>s.x===h.x&&s.y===h.y)){gameOver();return;}
+    S.snake.unshift(h);
+    if(h.x===S.food.x&&h.y===S.food.y){S.score++;document.getElementById(`ssc-${id}`).textContent=S.score;S.hi=Math.max(S.hi,S.score);document.getElementById(`shi-${id}`).textContent=S.hi;spawnFood();if(S.score%5===0&&S.speed>60){S.speed-=5;clearInterval(S.iv);S.iv=setInterval(tick,S.speed);}}
+    else S.snake.pop();
+    draw();
+  }
+
+  function gameOver(){
+    S.running=false;clearInterval(S.iv);S.iv=null;
+    ctx.fillStyle='rgba(0,0,0,.8)';ctx.fillRect(0,0,SIZE*CELL,SIZE*CELL);
+    ctx.textAlign='center';ctx.fillStyle='#ef4444';ctx.font='bold 16px JetBrains Mono';ctx.fillText('GAME OVER',SIZE*CELL/2,SIZE*CELL/2-12);
+    ctx.fillStyle='#e2e8f0';ctx.font='11px JetBrains Mono';ctx.fillText(`Score: ${S.score}`,SIZE*CELL/2,SIZE*CELL/2+4);
+    ctx.fillStyle='#64748b';ctx.font='9px JetBrains Mono';ctx.fillText('R to restart',SIZE*CELL/2,SIZE*CELL/2+18);
+    document.getElementById(`ssbtn-${id}`).textContent='▶ Start';
+    if(S.score>0)notify(`Game over! Score: ${S.score}`,'🐍 Snake',S.score>=10?'success':'');
+  }
+
+  function startGame(){
+    S.snake=[{x:10,y:10},{x:9,y:10},{x:8,y:10}];S.dir={x:1,y:0};S.score=0;
+    document.getElementById(`ssc-${id}`).textContent='0';
+    spawnFood();S.running=true;clearInterval(S.iv);S.iv=setInterval(tick,S.speed);
+    document.getElementById(`ssbtn-${id}`).textContent='⏸ Pause';draw();
+  }
+
+  S.keyH=e=>{
+    if(!document.getElementById(`sc-${id}`)){document.removeEventListener('keydown',S.keyH);return;}
+    const dm={ArrowUp:{x:0,y:-1},ArrowDown:{x:0,y:1},ArrowLeft:{x:-1,y:0},ArrowRight:{x:1,y:0},w:{x:0,y:-1},s:{x:0,y:1},a:{x:-1,y:0},d:{x:1,y:0}};
+    if(dm[e.key]&&S.running){const nd=dm[e.key];if(!(nd.x===-S.dir.x&&nd.y===-S.dir.y))S.dir=nd;e.preventDefault();}
+    if((e.key==='r'||e.key==='R')&&document.getElementById(`sc-${id}`))startGame();
+    if((e.key==='p'||e.key==='P')&&document.getElementById(`sc-${id}`))window[`sToggle_${id}`]();
+  };
+  document.addEventListener('keydown',S.keyH);
+
+  window[`sToggle_${id}`]=()=>{if(!S.running){startGame();}else{S.running=false;clearInterval(S.iv);S.iv=null;document.getElementById(`ssbtn-${id}`).textContent='▶ Resume';}};
+  window[`sReset_${id}`]=()=>{clearInterval(S.iv);S.iv=null;S.running=false;S.score=0;document.getElementById(`ssc-${id}`).textContent='0';document.getElementById(`ssbtn-${id}`).textContent='▶ Start';ctx.fillStyle='#000e1a';ctx.fillRect(0,0,SIZE*CELL,SIZE*CELL);ctx.textAlign='center';ctx.fillStyle='#64748b';ctx.font='10px JetBrains Mono';ctx.fillText('Press ▶ Start',SIZE*CELL/2,SIZE*CELL/2);};
+  window[`sSpdChg_${id}`]=(v)=>{S.speed=parseInt(v);if(S.running){clearInterval(S.iv);S.iv=setInterval(tick,S.speed);}};
+
+  window[`sReset_${id}`]();
+}
+function cleanSnake(id){const S=snakeInst[id];if(S){clearInterval(S.iv);if(S.keyH)document.removeEventListener('keydown',S.keyH);delete snakeInst[id];}}
+
+// ═══════════════════════════════════════════════════════
+//  SETTINGS — everything actually works
+// ═══════════════════════════════════════════════════════
+function buildSettings(body,id){
+  body.innerHTML=`
+    <div class="settings-wrap">
+      <div class="settings-nav">
+        <div class="settings-tab active" id="st-system-${id}" onclick="stab_${id}('system',this)">System</div>
+        <div class="settings-tab" id="st-display-${id}"       onclick="stab_${id}('display',this)">Display</div>
+        <div class="settings-tab" id="st-python-${id}"        onclick="stab_${id}('python',this)">Python</div>
+        <div class="settings-tab" id="st-security-${id}"      onclick="stab_${id}('security',this)">Security</div>
+        <div class="settings-tab" id="st-network-${id}"       onclick="stab_${id}('network',this)">Network</div>
+        <div class="settings-tab" id="st-about-${id}"         onclick="stab_${id}('about',this)">About</div>
+      </div>
+      <div class="settings-body" id="sbody-${id}"></div>
+    </div>`;
+
+  const pages={
+    system:()=>`
+      <div class="sg-title">System Information</div>
+      <div class="settings-row"><label>OS Name</label><span>PyOS 3.14.3 "Ouroboros"</span></div>
+      <div class="settings-row"><label>Kernel</label><span>python-meme-3.14.3</span></div>
+      <div class="settings-row"><label>Architecture</label><span>x86_meme / 64-bit</span></div>
+      <div class="settings-row"><label>Hostname</label><input class="settings-input" value="pyos.local" oninput="notify('Hostname changed to '+this.value,'🖥️','success')"></div>
+      <div class="sg-title">Power</div>
+      <div class="settings-row"><label>Notifications</label><div class="toggle ${OS.notifications?'on':''}" onclick="OS.notifications=!OS.notifications;this.classList.toggle('on');notify('Notifications '+(OS.notifications?'enabled':'disabled'),'🔔')"></div></div>
+      <div class="settings-row"><label>Auto-Lock Screen</label><div class="toggle ${OS.autoLock?'on':''}" onclick="OS.autoLock=!OS.autoLock;this.classList.toggle('on')"></div></div>
+      <div class="settings-row"><label>Hibernate</label><div class="toggle" onclick="notify('No disk to hibernate to.','💾','warn')"></div></div>
+      <div class="sg-title">Actions</div>
+      <div class="settings-row"><label>Restart Desktop</label><button class="fm-btn" onclick="notify('Restarting PDE...','🔄');setTimeout(()=>notify('PDE restarted!','✅','success'),1200)">↺ Restart PDE</button></div>
+      <div class="settings-row"><label>Shut Down</label><button class="fm-btn" style="color:var(--red);border-color:rgba(239,68,68,.3)" onclick="shutdown()">⛔ Shut Down</button></div>
+    `,
+    display:()=>`
+      <div class="sg-title">Appearance</div>
+      <div class="settings-row"><label>Accent Color</label>
+        <div class="color-swatch-row">
+          ${[['#3b82f6','Blue'],['#8b5cf6','Purple'],['#10b981','Green'],['#ef4444','Red'],['#f59e0b','Yellow'],['#ec4899','Pink'],['#06b6d4','Cyan']].map(([c,n])=>`<div class="color-swatch${OS.accentColor===c?' active':''}" style="background:${c}" title="${n}" onclick="setAccent('${c}',this)"></div>`).join('')}
+        </div>
+      </div>
+      <div class="settings-row"><label>Animations</label><div class="toggle ${OS.animations?'on':''}" onclick="OS.animations=!OS.animations;this.classList.toggle('on');applyAnimations()"></div></div>
+      <div class="settings-row"><label>Transparency</label><div class="toggle ${OS.transparency?'on':''}" onclick="OS.transparency=!OS.transparency;this.classList.toggle('on');applyTransparency()"></div></div>
+      <div class="settings-row"><label>Font Size</label>
+        <select class="settings-select" onchange="setFontSize(this.value)">
+          <option value="small" ${OS.fontSize==='small'?'selected':''}>Small</option>
+          <option value="normal" ${OS.fontSize==='normal'?'selected':''}>Normal</option>
+          <option value="large" ${OS.fontSize==='large'?'selected':''}>Large</option>
+        </select>
+      </div>
+      <div class="settings-row"><label>Night Mode (amber)</label><div class="toggle ${OS.nightMode?'on':''}" onclick="OS.nightMode=!OS.nightMode;this.classList.toggle('on');applyNightMode()"></div></div>
+      <div class="sg-title">Desktop</div>
+      <div class="settings-row"><label>Wallpaper</label></div>
+      <div class="wallpaper-grid">
+        ${[
+          {id:'grid',label:'Cyber Grid',bg:'linear-gradient(#0a0e1a,#0a0e1a)'},
+          {id:'sunset',label:'Sunset',bg:'linear-gradient(135deg,#1a0533,#8b0000,#ff6b35)'},
+          {id:'ocean',label:'Ocean',bg:'linear-gradient(135deg,#001529,#0c4a6e,#0ea5e9)'},
+          {id:'forest',label:'Forest',bg:'linear-gradient(135deg,#052e16,#14532d,#16a34a)'},
+          {id:'purple',label:'Purple',bg:'linear-gradient(135deg,#1e1b4b,#4c1d95,#7c3aed)'},
+          {id:'fire',label:'Fire',bg:'linear-gradient(135deg,#1c0f00,#7c2d12,#ea580c)'},
+        ].map(w=>`<div class="wp-card${OS.wallpaper===w.id?' active':''}" style="background:${w.bg}" onclick="setWallpaper('${w.id}','${w.bg}',this)">${w.label}</div>`).join('')}
+      </div>
+      <div class="settings-row" style="margin-top:10px;"><label>Show Desktop Icons</label><div class="toggle ${OS.showIcons?'on':''}" onclick="OS.showIcons=!OS.showIcons;this.classList.toggle('on');document.querySelectorAll('.desk-icon').forEach(d=>d.style.display=OS.showIcons?'block':'none')"></div></div>
+    `,
+    python:()=>`
+      <div class="sg-title">Python Runtime</div>
+      <div class="settings-row"><label>Version</label><span style="color:var(--green)">3.14.3 ✅</span></div>
+      <div class="settings-row"><label>Virtual Env</label><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+      <div class="settings-row"><label>GIL Enabled</label><div class="toggle on" onclick="notify('The GIL cannot be disabled. The GIL disables you.','⛔','error');setTimeout(()=>this.classList.add('on'),300)"></div></div>
+      <div class="settings-row"><label>Type Hints</label><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+      <div class="settings-row"><label>__debug__</label><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+      <div class="settings-row"><label>Optimization</label><select class="settings-select" onchange="notify('Optimization set to '+this.value,'⚙️','success')"><option>-O0 (default)</option><option>-O1</option><option>-O2</option><option>-O∞ (still slow)</option></select></div>
+      <div class="sg-title">pip</div>
+      <div class="settings-row"><label>pip version</label><span>22.3.1</span></div>
+      <div class="settings-row"><label>Auto-install deps</label><div class="toggle" onclick="this.classList.toggle('on')"></div></div>
+      <div class="settings-row"><label>Update all packages</label><button class="fm-btn" onclick="pipUpdateAll()">⬆️ Update All</button></div>
+      <div class="settings-info">⚠️ 16 packages outdated. They will not be updated. This is fine.</div>
+    `,
+    security:()=>`
+      <div class="sg-title">Lock Screen PIN</div>
+      <div class="settings-info" style="margin-bottom:12px;">Current PIN length: ${OS.pin.length} digits. Default PIN is 0000.</div>
+      <div class="settings-row"><label>Current PIN</label><input type="password" class="settings-input" id="curpin-${id}" placeholder="Current PIN" maxlength="8"></div>
+      <div class="settings-row"><label>New PIN</label><input type="password" class="settings-input" id="newpin-${id}" placeholder="New PIN (digits only)" maxlength="8"></div>
+      <div class="settings-row"><label>Confirm PIN</label><input type="password" class="settings-input" id="cfmpin-${id}" placeholder="Confirm new PIN" maxlength="8"></div>
+      <div class="settings-row"><label></label><button class="fm-btn" style="background:var(--accent);color:#fff;border-color:var(--accent);" onclick="changePin_${id}()">🔒 Change PIN</button></div>
+      <div class="sg-title">Lock Options</div>
+      <div class="settings-row"><label>Show PIN hint on lock</label><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+      <div class="settings-row"><label>Lock now</label><button class="fm-btn" onclick="lockScreen()">🔒 Lock Screen</button></div>
+    `,
+    network:()=>`
+      <div class="sg-title">Network Interfaces</div>
+      <div class="settings-row"><label>lo (loopback)</label><span style="color:var(--green)">UP — 127.0.0.1</span></div>
+      <div class="settings-row"><label>eth0</label><span style="color:var(--yellow)">UP — via browser fetch</span></div>
+      <div class="settings-row"><label>meme0</label><span style="color:var(--green)">UP — 1.3.3.7</span></div>
+      <div class="sg-title">Browser</div>
+      <div class="settings-row"><label>Default search</label><select class="settings-select" onchange="notify('Search engine: '+this.value,'🔍','success')"><option>Google</option><option>DuckDuckGo</option><option>Bing</option><option>Void (no internet)</option></select></div>
+      <div class="settings-row"><label>Block ads</label><div class="toggle on" onclick="this.classList.toggle('on');notify('Ad blocker '+(this.classList.contains('on')?'ON':'OFF'),'🛡️')"></div></div>
+      <div class="settings-row"><label>Test connection</label><button class="fm-btn" onclick="testNet_${id}()">🌐 Ping</button></div>
+      <div id="net-result-${id}" class="settings-info" style="display:none;margin-top:8px;"></div>
+    `,
+    about:()=>`
+      <div class="sg-title">About PyOS</div>
+      <div class="settings-row"><label>OS</label><span>PyOS 3.14.3 "Ouroboros"</span></div>
+      <div class="settings-row"><label>Type</label><span>Meme Operating System</span></div>
+      <div class="settings-row"><label>Is it real?</label><span style="color:var(--red)">Absolutely not.</span></div>
+      <div class="settings-row"><label>License</label><span>WTFPL</span></div>
+      <div style="margin-top:16px;text-align:center;padding:16px;background:var(--bg);border-radius:8px;border:1px solid var(--border);">
+        <div style="font-size:2.5rem;margin-bottom:8px;">🐍</div>
+        <div style="color:var(--sy);font-family:'Orbitron',sans-serif;font-size:1rem;margin-bottom:6px;">PyOS 3.14.3</div>
+        <div style="color:var(--muted);font-size:.65rem;line-height:1.6;">A meme OS built in HTML/JS.<br>Roleplaying as a Python kernel since 2025.</div>
+        <div style="margin-top:12px;display:flex;gap:8px;justify-content:center;">
+          <button class="fm-btn" onclick="notify('Thanks for using PyOS! 🐍','❤️')">❤️ Donate Vibes</button>
+          <button class="fm-btn" onclick="triggerBSOD()">💀 Crash It</button>
+        </div>
+      </div>
+    `,
+  };
+
+  window[`stab_${id}`]=(tab,el)=>{
+    // Walk up to find the settings-nav and deactivate siblings
+    el.closest('.settings-nav')?.querySelectorAll('.settings-tab').forEach(t=>t.classList.remove('active'));
+    el.classList.add('active');
+    const sbody = document.getElementById(`sbody-${id}`);
+    if(sbody) sbody.innerHTML = pages[tab]?.() || '';
+  };
+  window[`changePin_${id}`]=()=>{
+    const cur=document.getElementById(`curpin-${id}`).value;
+    const np=document.getElementById(`newpin-${id}`).value;
+    const cf=document.getElementById(`cfmpin-${id}`).value;
+    if(cur!==OS.pin){notify('Current PIN is incorrect!','🔒','error');return;}
+    if(!np||np.length<4){notify('PIN must be at least 4 digits','⚠️','warn');return;}
+    if(np!==cf){notify('New PINs do not match!','⚠️','error');return;}
+    if(!/^\d+$/.test(np)){notify('PIN must be digits only','⚠️','warn');return;}
+    OS.pin=np;
+    notify('PIN changed successfully!','🔒 Security','success');
+    document.getElementById(`curpin-${id}`).value='';
+    document.getElementById(`newpin-${id}`).value='';
+    document.getElementById(`cfmpin-${id}`).value='';
+  };
+  window[`testNet_${id}`]=()=>{
+    const el=document.getElementById(`net-result-${id}`);
+    el.style.display='block'; el.textContent='Pinging 8.8.8.8...';
+    fetch('https://www.google.com/favicon.ico',{mode:'no-cors'}).then(()=>{el.textContent='✅ Network reachable (via browser fetch).';el.style.borderColor='var(--green)';}).catch(()=>{el.textContent='❌ Network unreachable (or CORS blocked).';el.style.borderColor='var(--red)';});
+  };
+
+  document.getElementById(`sbody-${id}`).innerHTML=pages.system();
+}
+
+// ── Settings side-effects ──────────────────────────────
+function setAccent(c,el){
+  OS.accentColor=c;
+  document.documentElement.style.setProperty('--accent',c);
+  document.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));
+  el.classList.add('active');
+  notify('Accent color updated!','🎨','success');
+}
+function setWallpaper(wid,bg,el){
+  OS.wallpaper=wid;
+  document.getElementById('desktop-wallpaper').style.background=bg;
+  document.getElementById('desktop-wallpaper').style.backgroundSize='cover';
+  document.querySelectorAll('.wp-card').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  notify('Wallpaper changed!','🖼️','success');
+}
+function applyAnimations(){
+  document.documentElement.style.setProperty('--trans','all '+(OS.animations?'.15s':'0s'));
+  notify('Animations '+(OS.animations?'enabled':'disabled'),'✨');
+}
+function applyTransparency(){
+  document.querySelectorAll('.window').forEach(w=>w.style.backdropFilter=OS.transparency?'blur(10px)':'none');
+}
+function applyNightMode(){
+  document.body.style.filter=OS.nightMode?'sepia(30%) hue-rotate(-20deg)':'none';
+  notify('Night mode '+(OS.nightMode?'ON':'OFF'),'🌙');
+}
+function setFontSize(sz){
+  OS.fontSize=sz;
+  const map={small:'.65rem',normal:'.73rem',large:'.85rem'};
+  document.documentElement.style.fontSize=map[sz]||'1rem';
+  notify('Font size: '+sz,'🔤','success');
+}
+function pipUpdateAll(){
+  notify('pip: Updating all packages...','📦','');
+  setTimeout(()=>notify('pip: All packages up to date! (still 16 outdated, but shh)','📦 pip','success'),2000);
+}
+
+// ═══════════════════════════════════════════════════════
+//  DIALOG HELPER
+// ═══════════════════════════════════════════════════════
+function showDialog(title,prompt,defaultVal,onOk){
+  const ov=document.createElement('div'); ov.className='dialog-overlay';
+  ov.innerHTML=`
+    <div class="dialog-box">
+      <div class="dialog-title">${title}</div>
+      <div class="dialog-body">${prompt}</div>
+      <input class="dialog-input" id="dlg-input" value="${defaultVal}" autocomplete="off">
+      <div class="dialog-btns">
+        <button class="dialog-btn" onclick="this.closest('.dialog-overlay').remove()">Cancel</button>
+        <button class="dialog-btn primary" id="dlg-ok">OK</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  const inp=ov.querySelector('#dlg-input'); inp.focus(); inp.select();
+  const ok=()=>{const v=inp.value;ov.remove();onOk(v);};
+  ov.querySelector('#dlg-ok').onclick=ok;
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')ok();if(e.key==='Escape')ov.remove();});
+}
+
+// ═══════════════════════════════════════════════════════
+//  SHUTDOWN
+// ═══════════════════════════════════════════════════════
+function shutdown(){
+  Object.keys(tmIntervals).forEach(k=>{clearInterval(tmIntervals[k]);});
+  Object.keys(snakeInst).forEach(cleanSnake);
+  Object.keys(musicInstances).forEach(cleanMusic);
+  const boot=document.getElementById('boot');
+  boot.style.display='flex';boot.style.opacity='1';boot.style.background='#000';boot.style.transition='';
+  boot.innerHTML=`
+    <div style="text-align:center;font-family:'JetBrains Mono',monospace;">
+      <div style="font-size:2rem;margin-bottom:12px;">🐍</div>
+      <div style="color:#ef4444;font-size:1.1rem;margin-bottom:14px;">Shutting down PyOS...</div>
+      <div style="color:#64748b;font-size:.7rem;line-height:2;">
+        Stopping meme_loader... OK<br>
+        Stopping GIL_master... CANNOT STOP THE GIL<br>
+        Releasing GIL... done (finally)<br>
+        Saving session... FAILED (no disk)<br>
+        <span style="color:#10b981;">System halted. 🐍</span>
+      </div>
+      <button onclick="location.reload()" style="margin-top:20px;padding:8px 20px;background:var(--sy);border:none;border-radius:5px;font-family:'JetBrains Mono',monospace;font-weight:700;cursor:pointer;color:#000;">🔄 Reboot</button>
+    </div>`;
+  document.getElementById('desktop').style.display='none';
+  document.getElementById('taskbar').style.display='none';
+  document.getElementById('lockscreen').style.display='none';
+}
+
+// ═══════════════════════════════════════════════════════
+//  DESKTOP ICON SELECTION
+// ═══════════════════════════════════════════════════════
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.desk-icon'))document.querySelectorAll('.desk-icon.selected').forEach(d=>d.classList.remove('selected'));
+});
+document.querySelectorAll('.desk-icon').forEach(icon=>{
+  icon.addEventListener('click',e=>{
+    e.stopPropagation();
+    document.querySelectorAll('.desk-icon.selected').forEach(d=>d.classList.remove('selected'));
+    icon.classList.add('selected');
+  });
+});
+</script>
+</body>
+</html>
